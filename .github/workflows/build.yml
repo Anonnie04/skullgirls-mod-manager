@@ -1,0 +1,23 @@
+name: Windows build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build and test disposable fixtures
+        shell: pwsh
+        run: ./Build.ps1 -Test
+      - name: Package binaries and matching source
+        shell: pwsh
+        run: ./Package.ps1 -SkipBuild
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skullgirls-mod-manager-windows
+          path: artifacts/*.zip
+          if-no-files-found: error
