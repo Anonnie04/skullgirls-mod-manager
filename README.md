@@ -2,6 +2,8 @@
 
 A native Windows GUI adapted from Velvet Beautifier for local Skullgirls GFS replacement mods. Source reuse and licenses are documented in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+[Download the latest release](https://github.com/Anonnie04/skullgirls-mod-manager/releases/latest) · [Report an issue](https://github.com/Anonnie04/skullgirls-mod-manager/issues) · [Original Velvet Beautifier](https://github.com/ThemModdingHerds/velvet-beautifier)
+
 ## Launch
 
 For a Windows release, extract the ZIP to a writable folder and run **SkullgirlsModManager.exe**. Install the .NET 9 Desktop Runtime if prompted. From a source checkout, double-click **Launch Skullgirls Mod Manager.cmd** to build and launch, or run **dist/SkullgirlsModManager.exe** after building.
