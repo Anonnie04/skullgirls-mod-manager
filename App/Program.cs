@@ -371,11 +371,14 @@ public class MainForm : Form
             var game = RequireGame(); var snapshot = mods.ToList();
             var plan = await Task.Run(() => game.Preview(restore ? [] : snapshot));
             ShowPlan(plan); tabs.SelectedIndex = 0;
-            int count = plan.Replacements.Count + plan.Restore.Count;
+            int looseCount = plan.LooseFiles.Keys.Concat(plan.LooseRestore).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            int count = plan.Replacements.Count + plan.Restore.Count + looseCount;
             if (count == 0) { status.Text = "No changes to apply."; return; }
             var names = plan.Replacements.Keys.Concat(plan.Restore).ToList();
             long disk = names.Sum(n => new FileInfo(Path.Combine(game.DataFolder, n)).Length);
-            string message = (restore ? "Restore backed-up originals" : "Apply the previewed changes") + $" to {count} archive(s)?\n\n" + string.Join("\n", names) +
+            disk += plan.LooseFiles.Values.Sum(p => new FileInfo(p).Length);
+            disk += plan.LooseFiles.Keys.Concat(plan.LooseRestore).Distinct(StringComparer.OrdinalIgnoreCase).Sum(p => File.Exists(Path.Combine(game.GameFolder,p)) ? new FileInfo(Path.Combine(game.GameFolder,p)).Length : 0);
+            string message = (restore ? "Restore backed-up originals" : "Apply the previewed changes") + $" to {plan.Replacements.Count + plan.Restore.Count} archive(s) and {looseCount} loose file(s)?\n\n" + string.Join("\n", names) +
                 $"\n\nGame: {game.GameFolder}\nAllow roughly {FormatSize(disk * 3)} free space for backups, staging and rollback (more if assets grow).\nClose Skullgirls first. Keep this window open until the operation finishes.";
             if (MessageBox.Show(this, message, restore ? "Restore originals" : "Apply enabled mods", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
             await Task.Run(() => game.Apply(snapshot, restore));
@@ -434,10 +437,13 @@ public class MainForm : Form
         Directory.CreateDirectory(Path.Combine(folder, "core.gfs", "core"));
         new ModInfo { Id = "smoke.example", Name = "Example music configuration", Author = "Preview fixture", Version = new Version(1, 0), Description = "Disposable UI test fixture." }.Write(Path.Combine(folder, "mod.json"));
         File.WriteAllText(Path.Combine(folder, "core.gfs", "core", "music.ini"), "UI fixture only");
+        string looseFixture = Path.Combine(folder, "loose", "Digital Art Compendium", "SGMM-Smoke", "preview.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(looseFixture)!);
+        using (var fixtureImage = new Bitmap(1,1)) fixtureImage.Save(looseFixture, System.Drawing.Imaging.ImageFormat.Png);
         var mod = new Mod(folder); mod.SetEnabled(true);
         ReloadMods(folder);
         await Preview();
-        if (modGrid.Rows.Count != 1 || changeGrid.Rows.Count != 1 || archiveGrid.Rows.Count < 17) throw new InvalidOperationException("GUI smoke test failed.");
+        if (modGrid.Rows.Count != 1 || changeGrid.Rows.Count != 2 || archiveGrid.Rows.Count < 17 || !changeGrid.Rows.Cast<DataGridViewRow>().Any(r => r.Cells[0].Value?.ToString() == "Loose files")) throw new InvalidOperationException($"GUI smoke test failed: mods={modGrid.Rows.Count}, changes={changeGrid.Rows.Count}, archives={archiveGrid.Rows.Count}; {log.Text}");
         File.WriteAllText(Path.Combine(Program.ProjectRoot, "ui-smoke-results.txt"), "PASS connected game indexes, imported fixture view, enabled state, change preview, archive table. No game archive was written.\n");
     }
 

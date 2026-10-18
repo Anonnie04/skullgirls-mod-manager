@@ -39,6 +39,19 @@ public class Mod(string folder)
         }
         return result;
     }
+    public Dictionary<string, string> LooseFiles()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string root = Path.Combine(Folder, "loose");
+        if (!Directory.Exists(root)) return result;
+        foreach (string file in Library.Walk(root))
+        {
+            string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+            Manager.ValidateLooseName(relative);
+            if (!result.TryAdd(relative, file)) throw new InvalidDataException("Duplicate loose asset: " + relative);
+        }
+        return result;
+    }
 }
 
 public partial class Library
@@ -105,7 +118,8 @@ public partial class Library
             var mod = new Mod(content);
             if (string.IsNullOrWhiteSpace(mod.Info.Id) || string.IsNullOrWhiteSpace(mod.Info.Name)) throw new InvalidDataException("A mod needs an id and name.");
             if (Mods().Any(m => m.Info.Id == mod.Info.Id)) throw new InvalidDataException("A mod with this ID is already installed. Use a different ID for a new version.");
-            if (mod.Replacements().Count == 0) throw new InvalidDataException("No replacement folders found. Expected archive-name.gfs/asset/path inside the mod.");
+            int archives = mod.Replacements().Count, loose = mod.LooseFiles().Count;
+            if (archives == 0 && loose == 0) throw new InvalidDataException("No replacements found. Expected archive-name.gfs/asset/path or loose/Digital Art Compendium/...png.");
             mod.SetEnabled(false);
             string destination = Path.Combine(Root, Guid.NewGuid().ToString("N"));
             Directory.Move(content, destination);

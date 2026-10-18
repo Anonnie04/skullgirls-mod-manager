@@ -15,12 +15,17 @@ public class ArchiveState
 public class InstallState
 {
     public Dictionary<string, ArchiveState> Archives { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ArchiveState> LooseFiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 public record TransactionFile(string Target, string Staged, string Rollback, string OldHash, string NewHash);
 public record Transaction(InstallState Before, List<TransactionFile> Files);
-public record Plan(List<Change> Changes, Dictionary<string, Dictionary<string, string>> Replacements, List<string> Restore);
+public record Plan(List<Change> Changes, Dictionary<string, Dictionary<string, string>> Replacements, List<string> Restore)
+{
+    public Dictionary<string, string> LooseFiles { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> LooseRestore { get; init; } = [];
+}
 
-public class Manager
+public partial class Manager
 {
     public string GameFolder { get; }
     public string DataFolder => Path.Combine(GameFolder, "data01");
@@ -48,6 +53,7 @@ public class Manager
     {
         var state = File.Exists(StateFile) ? JsonSerializer.Deserialize<InstallState>(File.ReadAllText(StateFile)) ?? throw new InvalidDataException("Invalid backup state.") : new();
         state.Archives = new(state.Archives, StringComparer.OrdinalIgnoreCase);
+        state.LooseFiles = new(state.LooseFiles, StringComparer.OrdinalIgnoreCase);
         return state;
     }
     private string Target(string name)
@@ -74,6 +80,7 @@ public class Manager
     {
         if (NeedsRecovery) throw new InvalidOperationException("Recover the interrupted operation first.");
         var state = State();
+        mods = mods.ToList();
         var changes = new List<Change>();
         var replacements = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         var entries = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -96,7 +103,7 @@ public class Manager
         }
         var restore = state.Archives.Where(p => p.Value.LastHash != p.Value.OriginalHash && !replacements.ContainsKey(p.Key)).Select(p => p.Key).ToList();
         foreach (string archive in restore) changes.Add(new(archive, "(whole archive)", "Original backup", "Restore", false));
-        return new(changes, replacements, restore);
+        return PlanLoose(mods, state, new(changes, replacements, restore));
     }
 
     public void Apply(IEnumerable<Mod> mods, bool restoreAll = false)
@@ -106,9 +113,10 @@ public class Manager
         var plan = restoreAll ? Preview([]) : Preview(mods);
         var state = State();
         var targets = plan.Replacements.Keys.Concat(plan.Restore).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (targets.Count == 0) { Log("No archive changes to apply."); return; }
+        if (targets.Count == 0 && plan.LooseFiles.Count == 0 && plan.LooseRestore.Count == 0) { Log("No changes to apply."); return; }
         var next = JsonSerializer.Deserialize<InstallState>(JsonSerializer.Serialize(state))!;
         next.Archives = new(next.Archives, StringComparer.OrdinalIgnoreCase);
+        next.LooseFiles = new(next.LooseFiles, StringComparer.OrdinalIgnoreCase);
         var files = new List<TransactionFile>();
         var temporary = new List<string>();
         try
@@ -157,20 +165,23 @@ public class Manager
                 next.Archives[name].LastHash = newHash;
                 files.Add(new(target, staged, rollback, currentHash, newHash));
             }
+            PrepareLoose(plan, state, next, files, temporary);
             // Recheck after lengthy builds so external changes cannot silently be overwritten.
             foreach (var file in files)
-                if (Crypto.Checksum(file.Target) != file.OldHash) throw new IOException("A game archive changed during preparation.");
+                if (HashOrMissing(file.Target) != file.OldHash) throw new IOException("A game file changed during preparation.");
             Storage.Save(Journal, new Transaction(state, files));
             foreach (var file in files)
             {
                 Log($"Installing {Path.GetFileName(file.Target)}...");
-                File.Replace(file.Staged, file.Target, file.Rollback);
+                if (file.NewHash.Length == 0) File.Move(file.Target, file.Rollback);
+                else if (file.OldHash.Length == 0) File.Move(file.Staged, file.Target);
+                else File.Replace(file.Staged, file.Target, file.Rollback);
             }
             Storage.Save(StateFile, next);
             // Once the journal is gone, this transaction is committed.
             File.Delete(Journal);
             foreach (var file in files) if (File.Exists(file.Rollback)) File.Delete(file.Rollback);
-            Log(restoreAll ? "Original archives restored." : "Enabled mods applied. Backups retained.");
+            Log(restoreAll ? "Original files restored; mod-added files removed." : "Enabled mods applied. Backups retained.");
         }
         catch
         {
@@ -197,17 +208,22 @@ public class Manager
         // Validate everything before restoring any archive.
         foreach (var file in transaction.Files)
         {
-            bool Auxiliary(string path) => string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), DataFolder, StringComparison.OrdinalIgnoreCase)
+            if (File.Exists(file.Staged)) SafePaths.RejectLinks(file.Staged);
+            if (File.Exists(file.Rollback)) SafePaths.RejectLinks(file.Rollback);
+            bool Auxiliary(string path) => string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), Path.GetDirectoryName(Path.GetFullPath(file.Target)), StringComparison.OrdinalIgnoreCase)
                 && Path.GetFileName(path).StartsWith(Path.GetFileName(file.Target) + ".sgmm-", StringComparison.OrdinalIgnoreCase);
-            if (!string.Equals(Target(Path.GetFileName(file.Target)), Path.GetFullPath(file.Target), StringComparison.OrdinalIgnoreCase)
+            string expected = string.Equals(Path.GetDirectoryName(Path.GetFullPath(file.Target)), DataFolder, StringComparison.OrdinalIgnoreCase)
+                ? Target(Path.GetFileName(file.Target)) : LooseTarget(Path.GetRelativePath(GameFolder, file.Target).Replace('\\', '/'));
+            if (!string.Equals(expected, Path.GetFullPath(file.Target), StringComparison.OrdinalIgnoreCase)
                 || !Auxiliary(file.Rollback) || !Auxiliary(file.Staged)) throw new InvalidDataException("Invalid journal path.");
-            string current = Crypto.Checksum(file.Target);
+            string current = HashOrMissing(file.Target);
             if (current != file.NewHash && current != file.OldHash) throw new IOException("An archive changed after interruption; recovery stopped to preserve it.");
             if (File.Exists(file.Rollback) && Crypto.Checksum(file.Rollback) != file.OldHash) throw new InvalidDataException("Rollback checksum failed.");
-            if (!File.Exists(file.Rollback) && current != file.OldHash) throw new IOException("Rollback file missing.");
+            if (file.OldHash.Length > 0 && !File.Exists(file.Rollback) && current != file.OldHash) throw new IOException("Rollback file missing.");
         }
         foreach (var file in transaction.Files)
-            if (File.Exists(file.Rollback))
+            if (file.OldHash.Length == 0) { if (File.Exists(file.Target)) File.Delete(file.Target); }
+            else if (File.Exists(file.Rollback))
             {
                 File.Copy(file.Rollback, file.Staged, true);
                 File.Move(file.Staged, file.Target, true);

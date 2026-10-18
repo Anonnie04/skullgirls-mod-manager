@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.9
+
+- Install Digital Art Compendium PNG mods from folders or ZIPs with conflict previews and load order.
+- Back up and restore loose artwork; remove mod-added files when disabled.
+- Apply archives and loose artwork in one recoverable transaction, with checksum guards and interrupted-operation recovery.
+
 ## 0.3.8
 
 - Native Windows mod library with ordered folder/ZIP replacements, change preview, verified backups, restore, and interrupted-operation recovery.

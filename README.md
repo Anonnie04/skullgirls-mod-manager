@@ -54,12 +54,18 @@ The interface uses Skullgirls-inspired Art Deco styling: charcoal, burgundy, cre
 
 ## Replacement mod layout
 
+Digital Art Compendium PNG replacements can be installed from `loose/Digital Art Compendium/...png` inside a mod. The same mod may also contain GFS replacements. Loose-file mods import from folders or ZIPs, appear in change previews, obey load order, and use the same transaction as archive changes. Existing artwork is backed up; disabling a mod or using Restore originals restores replaced files and removes files that were originally absent. Files outside the mod's list remain unchanged. External edits and changed backups block installation. Other loose-file types and destinations are not supported.
+
 ```text
 My Mod/
   mod.json
   core.gfs/
     core/
       music.ini
+  loose/
+    Digital Art Compendium/
+      Character Art/
+        example.png
   ui.gfs/
     [exact internal path to a changed asset]
 ```
