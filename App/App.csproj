@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>SkullgirlsModManager</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest><Version>0.3.9</Version><Product>Skullgirls Mod Manager</Product><Description>Skullgirls GFS replacement mod manager, adapted from Velvet Beautifier</Description></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>SkullgirlsModManager</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest><Version>0.3.10</Version><Product>Skullgirls Mod Manager</Product><Description>Skullgirls GFS replacement mod manager, adapted from Velvet Beautifier</Description></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Core/Core.csproj" /></ItemGroup>
   <ItemGroup>
     <Content Include="../LICENSE;../THIRD-PARTY-NOTICES.md;../README.md" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

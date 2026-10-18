@@ -1,5 +1,9 @@
 # Source reuse
 
+## Optional runtime archive compatibility
+
+The manager can install the exact `CoreMessaging.dll` supplied in the user's Ahad of the Curve v0.10 ZIP (SHA-256 `014bfb8c48fa7afbcd585a34d814011b96b289c742482a01376f56aafa1e11d3`). That archive credits Skullgirls Community's Cut / SkullLoader for archive verification compatibility. This DLL is not included in the repository or release packages; users provide the original mod ZIP. Its authorship and licensing remain separate from this manager. The manager's installation code is original and does not modify the game executable.
+
 This is an independent Skullgirls adaptation, not an official release from the original authors or the game developers.
 
 ## Velvet Beautifier

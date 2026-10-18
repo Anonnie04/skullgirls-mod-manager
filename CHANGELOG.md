@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10
+
+- Detect protected-archive modifications that require runtime verification compatibility.
+- Block Apply with actionable instructions when the supported loader is missing.
+- Install the checksum-pinned AOTC loader from the user's ZIP through Backups & tools, without replacing existing different loaders or changing the executable.
+
 ## 0.3.9
 
 - Install Digital Art Compendium PNG mods from folders or ZIPs with conflict previews and load order.

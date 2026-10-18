@@ -215,6 +215,7 @@ public class MainForm : Form
         tools.Controls.Add(new Label { Text = "Backups are isolated for each game installation.\nRestore uses the originals captured before this manager's first change.\nIf Steam updates an archive, the manager stops rather than overwriting it.", AutoSize = true, MaximumSize = new Size(620, 0), Margin = new Padding(0, 0, 0, 20) });
         tools.Controls.Add(Button("Open backup folder", () => OpenFolder(RequireGame().BackupFolder)));
         tools.Controls.Add(Button("Open mod library", () => OpenFolder(library.Root)));
+        tools.Controls.Add(Button("Install archive compatibility…", InstallArchiveCompatibility));
         tools.Controls.Add(Button("Recover interrupted operation", async () => await Run(async () => { var game = RequireGame(); await Task.Run(game.Recover); status.Text = "Recovery complete. Preview before applying."; })));
         tools.Controls.Add(new Label { Text = "Velvet-compatible mod layout\n\nmod.json\ncore.gfs/\n    core/music.ini\n\nUse the exact internal path shown in the archive inspector.\nOnly include changed assets. Packed GFS files and TFH resources\nare not imported as replacement mods in this version.", AutoSize = true, Margin = new Padding(0, 24, 0, 0), Font = new Font("Consolas", 10) });
         toolsTab.Controls.Add(tools);
@@ -338,6 +339,19 @@ public class MainForm : Form
         Directory.Move(selected.Folder, Path.Combine(removed, Guid.NewGuid().ToString("N")));
         ReloadMods(); Dirty(); AppendLog($"Removed {selected.Info.Name} from the library.");
     }
+    private void InstallArchiveCompatibility()
+    {
+        try
+        {
+            var game = RequireGame();
+            using var picker = new OpenFileDialog { Title = "Select the original AOTC ZIP or supported CoreMessaging.dll", InitialDirectory = library.Root, Filter = "AOTC ZIP or compatibility loader|*.zip;CoreMessaging.dll" };
+            if(picker.ShowDialog(this)!=DialogResult.OK) return;
+            ArchiveCompatibility.Install(game.GameFolder,game.Profile,picker.FileName);
+            AppendLog("Checksum-verified archive compatibility loader installed. No game executable or mod assets were changed.");
+            status.Text="Archive compatibility is ready. Relaunch Skullgirls.";
+        }
+        catch(Exception ex) { MessageBox.Show(this,ex.Message,"Archive compatibility"); }
+    }
     private void CreateMod()
     {
         try
@@ -363,6 +377,7 @@ public class MainForm : Form
             if (change.Conflict) { changeGrid.Rows[n].DefaultCellStyle.BackColor = Theme.Burgundy; changeGrid.Rows[n].DefaultCellStyle.ForeColor = Theme.Gold; }
         }
         status.Text = $"{plan.Changes.Count:N0} planned entries • {plan.Changes.Count(c => c.Conflict)} overlaps • Later mods win.";
+        if(manager != null && ArchiveCompatibility.Required(manager.GameFolder,plan.Replacements.Keys) && !ArchiveCompatibility.Installed(manager.GameFolder)) status.Text="Archive compatibility required: use Backups & tools → Install archive compatibility before Apply.";
     }
     private async Task Apply(bool restore)
     {

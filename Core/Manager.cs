@@ -111,6 +111,7 @@ public partial class Manager
         Ready();
         using var guard = new FileStream(Path.Combine(Profile, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var plan = restoreAll ? Preview([]) : Preview(mods);
+        ArchiveCompatibility.Require(GameFolder, plan.Replacements.Keys);
         var state = State();
         var targets = plan.Replacements.Keys.Concat(plan.Restore).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (targets.Count == 0 && plan.LooseFiles.Count == 0 && plan.LooseRestore.Count == 0) { Log("No changes to apply."); return; }
