@@ -1,10 +1,14 @@
 # Changelog
 
+## 0.3.11
+
+- Use generic compatibility instructions and accept supported loader ZIPs regardless of their folder layout.
+
 ## 0.3.10
 
 - Detect protected-archive modifications that require runtime verification compatibility.
 - Block Apply with actionable instructions when the supported loader is missing.
-- Install the checksum-pinned AOTC loader from the user's ZIP through Backups & tools, without replacing existing different loaders or changing the executable.
+- Install the checksum-pinned compatibility loader from the user's ZIP through Backups & tools, without replacing existing different loaders or changing the executable.
 
 ## 0.3.9
 

@@ -344,7 +344,7 @@ public class MainForm : Form
         try
         {
             var game = RequireGame();
-            using var picker = new OpenFileDialog { Title = "Select the original AOTC ZIP or supported CoreMessaging.dll", InitialDirectory = library.Root, Filter = "AOTC ZIP or compatibility loader|*.zip;CoreMessaging.dll" };
+            using var picker = new OpenFileDialog { Title = "Select a compatibility ZIP or supported CoreMessaging.dll", InitialDirectory = library.Root, Filter = "Compatibility ZIP or loader|*.zip;CoreMessaging.dll" };
             if(picker.ShowDialog(this)!=DialogResult.OK) return;
             ArchiveCompatibility.Install(game.GameFolder,game.Profile,picker.FileName);
             AppendLog("Checksum-verified archive compatibility loader installed. No game executable or mod assets were changed.");
