@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.12
+
+- Add Update archive in Game archives to explicitly adopt the installed archive as the new baseline without modifying the game file.
+- Preserve the previous baseline and profile state in dated baseline history, with checksum validation and recovery for interrupted updates.
+- Keep external-change protections and require a fresh review if the archive or profile changes after confirmation.
+
 ## 0.3.11
 
 - Use generic compatibility instructions and accept supported loader ZIPs regardless of their folder layout.

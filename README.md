@@ -18,7 +18,7 @@ Some game builds verify `core.gfs`, `characters-foits.gfs`, and `ui.gfs` at star
 2. Import a replacement **folder** or **ZIP**. New imports are disabled. Enable the mods you want with the checkboxes; use Move up/down for order. Later mods win conflicts.
 3. Click **Preview changes** to review affected archive entries. Burgundy override rows replace an earlier mod's asset.
 4. Close Skullgirls and click **Apply enabled mods**. The application stages and verifies every affected archive before installing anything. It keeps backups per installation.
-5. **Restore originals** reinstalls the backups captured before this manager first changed those archives. Enabled selections are retained. Disabling/removing mods and applying also removes their previously applied changes.
+5. **Restore originals** reinstalls the saved archive baselines. These start as the files captured before the manager's first change; Update archive can explicitly adopt a newer baseline. Enabled selections are retained. Disabling/removing mods and applying removes changes made over the saved baselines.
 
 Use **New mod**, **Game archives > Preview assets**, or double-click an archive to open the asset browser. Switch archives, search paths or filter by type, then select an asset. New mod opens story artwork first and lets you build the mod by dropping replacements.
 
@@ -93,9 +93,11 @@ Each ID must be unique. To replace an imported version, remove it from the libra
 
 `Mods/` beside the launcher is the default mod library. The app scans its mod subfolders at startup, creates new mods there, and starts folder/ZIP import dialogs there. Click **YOUR MODS • OPEN FOLDER** to open it. Existing `Data/mods` is migrated on the first updated launch, preserving load order and enabled markers. `Data/` contains settings and installation-specific backup profiles. Keep this directory: it contains the originals needed for restore. No TFH files or Velvet settings are shared.
 
-Applying uses a persistent transaction journal, temporary files next to the game archives, atomic per-file replacement and rollback copies. A failure rolls back already-installed archives. After a process interruption, use **Backups & tools > Recover interrupted operation** before applying or launching from the manager. Keep enough free space for backups and staged copies; the apply review gives a rough allowance.
+Applying uses a persistent transaction journal, temporary files next to the game archives, atomic per-file replacement and rollback copies. A failure rolls back already-installed archives. After a process interruption, use **Backups & tools > Recover interrupted operation** before applying or launching from the manager. This also completes an interrupted archive-baseline update after checking the preserved snapshots and current game file. Keep enough free space for backups and staged copies; the apply review gives a rough allowance.
 
-If the current archive differs from the manager's last installed hash, or a backup fails its checksum, apply stops before committing. This protects game updates and external mods. This version does not automatically adopt a new Steam build: keep the existing Data directory for recovery, verify/reinstall the game's files with Steam, and archive the relevant profile outside `Data/profiles` before starting a fresh baseline. A first baseline is a copy of the files currently installed; it is not checked against official Steam hashes.
+If the current archive differs from the manager's last installed hash, or a backup fails its checksum, apply stops before committing. To keep a valid archive changed by Steam or another tool, close the game, select it in **Game archives**, and click **Update archive…**. Review and confirm to use the installed file as the new baseline. The game file is not modified. Existing customizations become part of that baseline, so disabling mods or using Restore originals will retain them. Recheck mod compatibility after game updates and preview before applying.
+
+The previous backup, complete profile state, and adopted file snapshot are preserved in a dated directory under the profile's `baseline-history`. Open it through **Backups & tools > Open baseline history**. Do not delete history or the Data directory while reviewing or recovering an update. Baselines are copies of installed files; they are not checked against official Steam hashes. Updating a baseline refuses corrupted previous backups, stale confirmations, and unresolved transactions.
 
 ## Scope
 

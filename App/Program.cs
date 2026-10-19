@@ -207,13 +207,15 @@ public class MainForm : Form
         var archiveActions = Toolbar();
         archiveActions.Controls.Add(Button("Preview assets", InspectArchive));
         archiveActions.Controls.Add(Button("Extract archive…", async () => await ExtractArchive()));
+        archiveActions.Controls.Add(Button("Update archive…", async () => await UpdateArchive()));
         archiveGrid.CellDoubleClick += (_, _) => InspectArchive();
         archiveLayout.Controls.Add(archiveActions, 0, 1); archiveTab.Controls.Add(archiveLayout);
         var detailTab = new WorkspacePage("Mod details") { Padding = new Padding(20) }; detailTab.Controls.Add(details);
         var toolsTab = new WorkspacePage("Backups & tools") { Padding = new Padding(20) };
         var tools = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        tools.Controls.Add(new Label { Text = "Backups are isolated for each game installation.\nRestore uses the originals captured before this manager's first change.\nIf Steam updates an archive, the manager stops rather than overwriting it.", AutoSize = true, MaximumSize = new Size(620, 0), Margin = new Padding(0, 0, 0, 20) });
+        tools.Controls.Add(new Label { Text = "Backups are isolated for each game installation.\nRestore uses the saved baseline. Update archive in Game archives adopts the installed file as a new baseline and preserves the previous backup and state in baseline history.\nExternal changes still block Apply until explicitly reviewed.", AutoSize = true, MaximumSize = new Size(620, 0), Margin = new Padding(0, 0, 0, 20) });
         tools.Controls.Add(Button("Open backup folder", () => OpenFolder(RequireGame().BackupFolder)));
+        tools.Controls.Add(Button("Open baseline history", () => { var folder = RequireGame().BaselineHistory; Directory.CreateDirectory(folder); OpenFolder(folder); }));
         tools.Controls.Add(Button("Open mod library", () => OpenFolder(library.Root)));
         tools.Controls.Add(Button("Install archive compatibility…", InstallArchiveCompatibility));
         tools.Controls.Add(Button("Recover interrupted operation", async () => await Run(async () => { var game = RequireGame(); await Task.Run(game.Recover); status.Text = "Recovery complete. Preview before applying."; })));
@@ -402,6 +404,22 @@ public class MainForm : Form
         });
     }
     private string? SelectedArchive => archiveGrid.CurrentRow?.Cells[0].Value as string;
+    private async Task UpdateArchive()
+    {
+        if (SelectedArchive is not { } name) { status.Text = "Select an archive in Game archives first."; return; }
+        await Run(async () =>
+        {
+            var game = RequireGame();
+            var reviewed = await Task.Run(() => game.ReviewArchiveUpdate(name));
+            if (reviewed.CurrentHash == reviewed.OriginalHash && reviewed.CurrentHash == reviewed.LastHash)
+            { status.Text = $"{name} already matches its baseline."; return; }
+            string message = $"Keep the currently installed {name} as the new baseline?\n\nThe installed game file will not change. Any customizations already in this archive become part of the baseline: Restore originals will keep them, and disabling mods will not remove them.\n\nThe previous backup and profile state will be preserved separately in:\n{game.BaselineHistory}\n\nClose Skullgirls first. Preview your enabled mods again afterward.";
+            if (MessageBox.Show(this, message, "Update archive baseline", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            string? history = await Task.Run(() => game.UpdateArchiveBaseline(reviewed));
+            changeGrid.Rows.Clear();
+            status.Text = history == null ? "Baseline already current." : $"Updated {name} baseline. Previous backup preserved. Preview enabled mods before applying.";
+        });
+    }
     private void OpenAssetBrowser(string name)
     {
         using var browser = new AssetBrowser(Path.Combine(RequireGame().DataFolder, name), library);
@@ -466,6 +484,14 @@ public class MainForm : Form
     {
         var game = RequireGame();
         tabs.SelectedIndex = 1;
+        IEnumerable<Control> Descendants(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            { yield return child; foreach (var nested in Descendants(child)) yield return nested; }
+        }
+        var updateButton = Descendants(tabs.TabPages[1]).OfType<Button>().Single(b => b.Text == "Update archive…");
+        if (!updateButton.Visible || !updateButton.Parent!.ClientRectangle.Contains(updateButton.Bounds))
+            throw new InvalidOperationException("Update archive button is not visible within the archive toolbar.");
         using (var shot = new Bitmap(Width, Height))
         {
             DrawToBitmap(shot, new Rectangle(Point.Empty, Size));

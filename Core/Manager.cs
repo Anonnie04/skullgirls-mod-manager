@@ -34,7 +34,7 @@ public partial class Manager
     private string StateFile => Path.Combine(Profile, "state.json");
     private string Journal => Path.Combine(Profile, "transaction.json");
     public Action<string> Log { get; set; } = _ => { };
-    public bool NeedsRecovery => File.Exists(Journal);
+    public bool NeedsRecovery => File.Exists(Journal) || File.Exists(BaselineJournal);
 
     public Manager(string game, string dataRoot)
     {
@@ -128,7 +128,7 @@ public partial class Manager
                 Log($"Checking {name}...");
                 string currentHash = Crypto.Checksum(target);
                 if (state.Archives.TryGetValue(name, out var known) && currentHash != known.LastHash)
-                    throw new InvalidOperationException($"{name} changed outside this manager (possibly a game update). No files were applied. Use a fresh profile after reviewing your backups.");
+                    throw new InvalidOperationException($"{name} changed outside this manager. No files were applied. To keep the current archive, select it in Game archives and use Update archive. Review your backups first.");
                 string baseline = Baseline(name, state);
                 if (known != null && Crypto.Checksum(baseline) != known.OriginalHash) throw new InvalidDataException($"Backup checksum failed: {name}");
                 if (known == null)
@@ -200,6 +200,11 @@ public partial class Manager
     {
         if (Process.GetProcessesByName("SkullGirls").Length != 0) throw new InvalidOperationException("Close Skullgirls first.");
         using var guard = new FileStream(Path.Combine(Profile, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        if (File.Exists(BaselineJournal))
+        {
+            if (File.Exists(Journal)) throw new InvalidDataException("Two recovery journals exist. Review the profile before recovery.");
+            CompleteBaselineUpdate(); return;
+        }
         RecoverInternal();
     }
     private void RecoverInternal()
