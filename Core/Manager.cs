@@ -27,8 +27,9 @@ public record Plan(List<Change> Changes, Dictionary<string, Dictionary<string, s
 
 public partial class Manager
 {
+    private readonly bool explicitArchiveFolder;
     public string GameFolder { get; }
-    public string DataFolder => Path.Combine(GameFolder, "data01");
+    public string DataFolder { get; }
     public string Profile { get; }
     public string BackupFolder => Path.Combine(Profile, "backups");
     private string StateFile => Path.Combine(Profile, "state.json");
@@ -36,16 +37,27 @@ public partial class Manager
     public Action<string> Log { get; set; } = _ => { };
     public bool NeedsRecovery => File.Exists(Journal) || File.Exists(BaselineJournal);
 
-    public Manager(string game, string dataRoot)
+    public Manager(string game, string dataRoot, string? archiveFolder = null)
     {
+        if (archiveFolder is not null && archiveFolder is not ("data01" or "data02")) throw new ArgumentException("Unsupported archive folder.");
+        explicitArchiveFolder = archiveFolder != null;
         GameFolder = Path.GetFullPath(game).TrimEnd(Path.DirectorySeparatorChar);
+        DataFolder = Path.Combine(GameFolder, archiveFolder ?? (ArchiveCompatibility.Installed(GameFolder) && Directory.Exists(Path.Combine(GameFolder, "data02")) ? "data02" : "data01"));
         if (!File.Exists(Path.Combine(GameFolder, "SkullGirls.exe")) || !Directory.Exists(DataFolder))
             throw new InvalidDataException("Select the Skullgirls folder containing SkullGirls.exe and data01.");
         SafePaths.RejectLinks(GameFolder);
         SafePaths.RejectLinks(DataFolder);
         string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(GameFolder.ToUpperInvariant())))[..20];
-        Profile = Path.Combine(dataRoot, "profiles", key);
+        // Runtime redirects need independent backups; never reuse data01 baselines.
+        string originalProfile = Path.Combine(dataRoot, "profiles", key);
+        Profile = DataFolder.EndsWith("data02", StringComparison.OrdinalIgnoreCase) ? originalProfile + "-data02" : originalProfile;
         Directory.CreateDirectory(BackupFolder);
+        if (Profile != originalProfile && ArchiveCompatibility.Saved(originalProfile) && !ArchiveCompatibility.Saved(Profile))
+        {
+            string saved = ArchiveCompatibility.SavedLoader(Profile);
+            Directory.CreateDirectory(Path.GetDirectoryName(saved)!);
+            File.Copy(ArchiveCompatibility.SavedLoader(originalProfile), saved, true);
+        }
     }
 
     public List<string> ArchiveNames() => Directory.GetFiles(DataFolder, "*.gfs").Select(Path.GetFileName).Cast<string>().Order().ToList();
@@ -72,6 +84,8 @@ public partial class Manager
     }
     private void Ready()
     {
+        string active = Path.Combine(GameFolder, ArchiveCompatibility.Installed(GameFolder) && Directory.Exists(Path.Combine(GameFolder, "data02")) ? "data02" : "data01");
+        if (!explicitArchiveFolder && !active.Equals(DataFolder, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The game archive folder changed after mod support setup. Reopen the manager before applying mods.");
         if (Process.GetProcessesByName("SkullGirls").Length != 0) throw new InvalidOperationException("Close Skullgirls before changing game files.");
         if (NeedsRecovery) throw new InvalidOperationException("An interrupted operation needs recovery. Use Recover interrupted operation first.");
     }
@@ -108,6 +122,29 @@ public partial class Manager
 
     public void Apply(IEnumerable<Mod> mods, bool restoreAll = false)
     {
+        var snapshot = mods.ToList();
+        ValidateApply(snapshot, restoreAll);
+        Log($"Applying to {Path.GetFileName(DataFolder)} only.");
+        ApplySingle(snapshot, restoreAll);
+    }
+
+    private void ValidateApply(IEnumerable<Mod> mods, bool restoreAll)
+    {
+        Ready();
+        var plan = Preview(restoreAll ? [] : mods);
+        ArchiveCompatibility.Require(GameFolder, plan.Replacements.Keys);
+        var state = State();
+        foreach (string name in plan.Replacements.Keys.Concat(plan.Restore).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!state.Archives.TryGetValue(name, out var known)) continue;
+            string current = Crypto.Checksum(Target(name));
+            if (current != known.LastHash && current != known.OriginalHash) throw new IOException($"{Path.GetFileName(DataFolder)}/{name} changed outside this manager. No files were applied.");
+            if (Crypto.Checksum(Baseline(name, state)) != known.OriginalHash) throw new InvalidDataException($"Backup checksum failed: {name}");
+        }
+    }
+
+    private void ApplySingle(IEnumerable<Mod> mods, bool restoreAll)
+    {
         Ready();
         using var guard = new FileStream(Path.Combine(Profile, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var plan = restoreAll ? Preview([]) : Preview(mods);
@@ -127,7 +164,7 @@ public partial class Manager
                 string target = Target(name);
                 Log($"Checking {name}...");
                 string currentHash = Crypto.Checksum(target);
-                if (state.Archives.TryGetValue(name, out var known) && currentHash != known.LastHash)
+                if (state.Archives.TryGetValue(name, out var known) && currentHash != known.LastHash && currentHash != known.OriginalHash)
                     throw new InvalidOperationException($"{name} changed outside this manager. No files were applied. To keep the current archive, select it in Game archives and use Update archive. Review your backups first.");
                 string baseline = Baseline(name, state);
                 if (known != null && Crypto.Checksum(baseline) != known.OriginalHash) throw new InvalidDataException($"Backup checksum failed: {name}");

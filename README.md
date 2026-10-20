@@ -12,7 +12,7 @@ The provided build uses the installed .NET 9 Desktop Runtime. Building requires 
 
 ## Use
 
-Some game builds verify `core.gfs`, `characters-foits.gfs`, and `ui.gfs` at startup. Replacing their contents requires archive compatibility support; valid GFS structure alone does not satisfy that check. Before applying these mods, open **Backups & tools → Install archive compatibility** and select a ZIP containing the supported compatibility loader, or select CoreMessaging.dll directly. The manager accepts only the checksum-pinned loader, refuses to overwrite another DLL, and records installation in the profile. The loader is supplied by your mod, not distributed with this application. The game executable is not modified. Restore originals restores managed assets; the compatibility DLL remains installed.
+Some game builds verify `core.gfs`, `characters-foits.gfs`, and `ui.gfs` at startup. Use **Backups & tools → Set up mod support** once and select the supported `CoreMessaging.dll` or a ZIP containing it. Import your actual mod separately with **Import mod**. The manager verifies the loader checksum and saves a copy in its Data profile, outside the game folder. After reinstalling the game, enable your mods and click **Apply**: saved support is restored automatically. The setup button also restores support without selecting a file again. Keep the manager's Data folder when reinstalling the game. Unknown DLLs are never overwritten. The loader is user-supplied, not bundled with the app. Restore originals restores assets and leaves mod support available.
 
 1. Connect the folder containing `SkullGirls.exe` and `data01`. Steam libraries are searched automatically; use Browse if the game is elsewhere.
 2. Import a replacement **folder** or **ZIP**. New imports are disabled. Enable the mods you want with the checkboxes; use Move up/down for order. Later mods win conflicts.
@@ -51,6 +51,8 @@ For a selected DDS, **Save PNG** exports the full-resolution decoded image (incl
 Limits: images 32 megapixels / 64 MB input; audio 128 MB input and 10 minutes / 32 million decoded samples. Large or unsupported assets show a header view. **Save original** exports one original asset outside the game installation.
 
 Supported fighting-character entries in `characters-art.gfs`, `characters-art-pt.gfs` and `characters-foits.gfs` show a clickable link to [Skullgirls Sprite Workshop](https://github.com/Anonnie04/skullgirls-sprite-workshop). This scope matches the local Workshop's character roster, art banks, metadata and older `temp/` aliases. The Workshop reads palettes from `sprites.gfs` as supporting data; this does not make the whole archive Workshop-only. Standalone DDS textures, story portraits and cutscenes are decoded here and can use the regular replacement workflow. This app does not modify the Workshop.
+
+When importing a sprite package with VRSN 9 character metadata, the manager grows advertised art memory sizes to cover the supplied art banks. Some relocated Workshop packages retain the old sizes even though replacement art is appended. Only the two size fields are adjusted; other metadata and the source ZIP stay unchanged. Adjustments are listed in `sprite-storage-repairs.json` inside the imported mod folder. Existing imported mods need to be reimported to receive this correction. Applying and restoring still use the normal verified archive transaction.
 
 The interface uses Skullgirls-inspired Art Deco styling: charcoal, burgundy, cream lettering, brass-gold borders and geometric dividers. It does not copy game graphics into the UI.
 
@@ -120,3 +122,5 @@ Source is GPL-3.0; the copied GFS library retains its MIT license. When distribu
 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for optional game checks, UI checks, and release packaging. Windows builds and matching source ZIPs are produced by the GitHub Actions workflow; no game files or mods are included.
+
+With mod support installed and `data02` present, Apply and Restore target only `data02`, using its separate backups. `data01` is left unchanged. The confirmation shows the target archive folder.

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.16
+
+- Grow VRSN 9 character art memory sizes on import when a sprite package supplies larger art banks with stale FOIT sizes.
+- Preserve other metadata and original ZIPs; record each size adjustment in the imported mod's sprite-storage-repairs.json. Imports remain disabled until selected.
+
+## 0.3.15
+
+- Revert dual-folder writes: use only the active data02 archives with mod support.
+- Show the selected archive folder in the apply confirmation.
+
+## 0.3.14
+
+- Apply mods to both data01 and the compatibility loader's data02 folder, with separate backups and restore state.
+- Show changes for the second folder in previews, including restores.
+
+## 0.3.13
+
+- Save verified mod support outside the game folder and restore it automatically on Apply after a game reinstall.
+- Replace the compatibility file picker entry with Set up mod support, with a one-time explanation and saved-file recovery.
+- Allow reapplying mods when reinstalled archives match their verified original backups.
+
 ## 0.3.12
 
 - Add Update archive in Game archives to explicitly adopt the installed archive as the new baseline without modifying the game file.

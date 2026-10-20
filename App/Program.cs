@@ -217,7 +217,7 @@ public class MainForm : Form
         tools.Controls.Add(Button("Open backup folder", () => OpenFolder(RequireGame().BackupFolder)));
         tools.Controls.Add(Button("Open baseline history", () => { var folder = RequireGame().BaselineHistory; Directory.CreateDirectory(folder); OpenFolder(folder); }));
         tools.Controls.Add(Button("Open mod library", () => OpenFolder(library.Root)));
-        tools.Controls.Add(Button("Install archive compatibility…", InstallArchiveCompatibility));
+        tools.Controls.Add(Button("Set up mod support…", InstallArchiveCompatibility));
         tools.Controls.Add(Button("Recover interrupted operation", async () => await Run(async () => { var game = RequireGame(); await Task.Run(game.Recover); status.Text = "Recovery complete. Preview before applying."; })));
         tools.Controls.Add(new Label { Text = "Velvet-compatible mod layout\n\nmod.json\ncore.gfs/\n    core/music.ini\n\nUse the exact internal path shown in the archive inspector.\nOnly include changed assets. Packed GFS files and TFH resources\nare not imported as replacement mods in this version.", AutoSize = true, Margin = new Padding(0, 24, 0, 0), Font = new Font("Consolas", 10) });
         toolsTab.Controls.Add(tools);
@@ -325,6 +325,8 @@ public class MainForm : Form
         }
         var mod = await Task.Run(() => library.Import(path));
         ReloadMods(mod.Folder); Dirty(); AppendLog($"Imported {mod.Info.Name}. Disabled until you enable it.");
+        if (File.Exists(Path.Combine(mod.Folder, SpriteStorage.Receipt)))
+            AppendLog("Updated sprite memory sizes to cover the imported art. Details: " + Path.Combine(mod.Folder, SpriteStorage.Receipt));
     });
     private void MoveMod(int delta)
     {
@@ -346,11 +348,19 @@ public class MainForm : Form
         try
         {
             var game = RequireGame();
-            using var picker = new OpenFileDialog { Title = "Select a compatibility ZIP or supported CoreMessaging.dll", InitialDirectory = library.Root, Filter = "Compatibility ZIP or loader|*.zip;CoreMessaging.dll" };
+            if (ArchiveCompatibility.RestoreSaved(game.GameFolder, game.Profile))
+            {
+                ArchiveCompatibility.Install(game.GameFolder, game.Profile, Path.Combine(game.GameFolder, "CoreMessaging.dll"));
+                AppendLog("Mod support is ready. A verified copy is saved outside the game folder for future reinstalls.");
+                status.Text = "Mod support ready. Enable your mods, then click Apply.";
+                return;
+            }
+            MessageBox.Show(this, "Some sprite mods need a separate support file before Skullgirls can load them. Select CoreMessaging.dll or the original download ZIP containing it. Import your sprite mod ZIP with Import mod.\n\nThis is needed only once. The manager saves a verified copy outside the game folder and restores it automatically after a reinstall.", "One-time mod support setup", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using var picker = new OpenFileDialog { Title = "One-time setup: select CoreMessaging.dll or a ZIP containing it", InitialDirectory = library.Root, Filter = "Mod support file or ZIP|CoreMessaging.dll;*.zip" };
             if(picker.ShowDialog(this)!=DialogResult.OK) return;
             ArchiveCompatibility.Install(game.GameFolder,game.Profile,picker.FileName);
-            AppendLog("Checksum-verified archive compatibility loader installed. No game executable or mod assets were changed.");
-            status.Text="Archive compatibility is ready. Relaunch Skullgirls.";
+            AppendLog("Mod support installed and saved for future game reinstalls.");
+            status.Text="Mod support ready. Enable your mods, then click Apply.";
         }
         catch(Exception ex) { MessageBox.Show(this,ex.Message,"Archive compatibility"); }
     }
@@ -379,7 +389,7 @@ public class MainForm : Form
             if (change.Conflict) { changeGrid.Rows[n].DefaultCellStyle.BackColor = Theme.Burgundy; changeGrid.Rows[n].DefaultCellStyle.ForeColor = Theme.Gold; }
         }
         status.Text = $"{plan.Changes.Count:N0} planned entries • {plan.Changes.Count(c => c.Conflict)} overlaps • Later mods win.";
-        if(manager != null && ArchiveCompatibility.Required(manager.GameFolder,plan.Replacements.Keys) && !ArchiveCompatibility.Installed(manager.GameFolder)) status.Text="Archive compatibility required: use Backups & tools → Install archive compatibility before Apply.";
+        if(manager != null && ArchiveCompatibility.Required(manager.GameFolder,plan.Replacements.Keys) && !ArchiveCompatibility.Installed(manager.GameFolder)) status.Text="Mod support needed. Click Apply to restore saved support, or use Backups & tools → Set up mod support.";
     }
     private async Task Apply(bool restore)
     {
@@ -390,14 +400,24 @@ public class MainForm : Form
             ShowPlan(plan); tabs.SelectedIndex = 0;
             int looseCount = plan.LooseFiles.Keys.Concat(plan.LooseRestore).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             int count = plan.Replacements.Count + plan.Restore.Count + looseCount;
-            if (count == 0) { status.Text = "No changes to apply."; return; }
+            if (count == 0 && plan.Changes.Count == 0) { status.Text = "No changes to apply."; return; }
             var names = plan.Replacements.Keys.Concat(plan.Restore).ToList();
             long disk = names.Sum(n => new FileInfo(Path.Combine(game.DataFolder, n)).Length);
             disk += plan.LooseFiles.Values.Sum(p => new FileInfo(p).Length);
             disk += plan.LooseFiles.Keys.Concat(plan.LooseRestore).Distinct(StringComparer.OrdinalIgnoreCase).Sum(p => File.Exists(Path.Combine(game.GameFolder,p)) ? new FileInfo(Path.Combine(game.GameFolder,p)).Length : 0);
             string message = (restore ? "Restore backed-up originals" : "Apply the previewed changes") + $" to {plan.Replacements.Count + plan.Restore.Count} archive(s) and {looseCount} loose file(s)?\n\n" + string.Join("\n", names) +
                 $"\n\nGame: {game.GameFolder}\nAllow roughly {FormatSize(disk * 3)} free space for backups, staging and rollback (more if assets grow).\nClose Skullgirls first. Keep this window open until the operation finishes.";
+            message += $"\n\nArchive folder: {game.DataFolder}";
             if (MessageBox.Show(this, message, restore ? "Restore originals" : "Apply enabled mods", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+            if (!restore && ArchiveCompatibility.Required(game.GameFolder, plan.Replacements.Keys) && !ArchiveCompatibility.Installed(game.GameFolder))
+            {
+                if (!ArchiveCompatibility.RestoreSaved(game.GameFolder, game.Profile))
+                {
+                    InstallArchiveCompatibility();
+                    if (!ArchiveCompatibility.Installed(game.GameFolder)) return;
+                }
+                AppendLog("Mod support restored. Continuing with the selected mods.");
+            }
             await Task.Run(() => game.Apply(snapshot, restore));
             status.Text = restore ? "Originals restored. Enabled mod selections were kept." : "Mods applied successfully. You can launch Skullgirls.";
             changeGrid.Rows.Clear();

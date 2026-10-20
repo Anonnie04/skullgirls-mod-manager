@@ -20,9 +20,35 @@ public static class ArchiveCompatibility
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream)).Equals(LoaderSha256,StringComparison.OrdinalIgnoreCase);
     }
+    public static string SavedLoader(string profile) => Path.Combine(profile, "compatibility", "CoreMessaging.dll");
+    private static bool Verified(string path)
+    {
+        if (!File.Exists(path)) return false;
+        SafePaths.RejectLinks(path);
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).Equals(LoaderSha256, StringComparison.OrdinalIgnoreCase);
+    }
+    public static bool Saved(string profile) => Verified(SavedLoader(profile));
+    public static bool RestoreSaved(string game, string profile)
+    {
+        if (Installed(game)) return true;
+        if (!Saved(profile)) return false;
+        Install(game, profile, SavedLoader(profile));
+        return true;
+    }
+    private static void Remember(string profile, byte[] bytes)
+    {
+        string path = SavedLoader(profile);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        SafePaths.RejectLinks(Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) SafePaths.RejectLinks(path);
+        string staged = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try { File.WriteAllBytes(staged, bytes); File.Move(staged, path, true); }
+        finally { if (File.Exists(staged)) File.Delete(staged); }
+    }
     public static void Require(string game, IEnumerable<string> archives)
     {
-        if (Required(game,archives) && !Installed(game)) throw new InvalidOperationException("These mods change archives verified by Skullgirls. Install the supported archive compatibility loader from Backups & tools first (choose a ZIP containing the supported CoreMessaging.dll or select the DLL directly). Otherwise the game will report 'Package ... not verified'.");
+        if (Required(game,archives) && !Installed(game)) throw new InvalidOperationException("These mods change archives verified by Skullgirls. Open Backups & tools → Set up mod support. This is a separate, one-time setup, not a mod ZIP import. After setup, the manager saves support locally and restores it automatically after a game reinstall.");
     }
     public static void Install(string game, string profile, string source)
     {
@@ -45,9 +71,10 @@ public static class ArchiveCompatibility
         }
         if(!Convert.ToHexString(SHA256.HashData(bytes)).Equals(LoaderSha256,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Compatibility loader checksum does not match the supported loader.");
         string target=Path.Combine(game,"CoreMessaging.dll");
-        if(File.Exists(target)) { if(Installed(game)) return; throw new IOException("A different CoreMessaging.dll already exists; it was not overwritten."); }
+        if(File.Exists(target)) { if(Installed(game)) { Remember(profile, bytes); return; } throw new IOException("A different CoreMessaging.dll already exists; it was not overwritten."); }
         if(Directory.Exists(target)) throw new IOException("A directory occupies the loader path.");
         foreach(string proxy in new[]{"d3d9.dll","dbghelp.dll"}) if(File.Exists(Path.Combine(game,proxy))) throw new IOException("Another proxy loader exists: "+proxy);
+        Remember(profile, bytes);
         string staged=target+".sgmm-"+Guid.NewGuid().ToString("N")+".tmp";
         try
         {

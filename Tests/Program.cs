@@ -67,6 +67,33 @@ Check(!modA.Enabled, "folder import starts disabled even if source was enabled")
 string zip = Path.Combine(root, "ModB.zip"); ZipFile.CreateFromDirectory(sourceB, zip);
 var modB = library.Import(zip);
 Check(modB.Info.Id == "tests.b", "ZIP import retains Velvet mod.json metadata");
+// Relocated art must fit the memory sizes the game reads from VRSN 9 FOITs.
+string spriteSource = Path.Combine(root, "SpriteStorageMod");
+byte[] paletteName = System.Text.Encoding.ASCII.GetBytes("valentine_1p.pal");
+byte[] spriteMetadata = new byte[35 + paletteName.Length + 8];
+"VRSN"u8.CopyTo(spriteMetadata.AsSpan(4));
+System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(spriteMetadata.AsSpan(8), 9);
+for (int i = 0; i < 5; i++) System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(spriteMetadata.AsSpan(12 + 4 * i), 8);
+System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(spriteMetadata.AsSpan(32), 1);
+spriteMetadata[34] = (byte)paletteName.Length; paletteName.CopyTo(spriteMetadata, 35);
+string spriteFoit = Payload("SpriteStorageMod/characters-foits.gfs/characters/valentine.foit", "");
+File.WriteAllBytes(spriteFoit, spriteMetadata);
+File.WriteAllBytes(Payload("SpriteStorageMod/characters-art.gfs/characters/valentine.art", ""), new byte[32]);
+File.WriteAllBytes(Payload("SpriteStorageMod/characters-art-pt.gfs/characters/valentine.art-pt", ""), new byte[48]);
+new ModInfo { Id = "tests.sprite-storage", Name = "Relocated sprites", Version = new Version(1, 0) }.Write(Path.Combine(spriteSource, "mod.json"));
+string spriteZip = Path.Combine(root, "sprite-storage.zip"); ZipFile.CreateFromDirectory(spriteSource, spriteZip);
+var spriteMod = new Library(Path.Combine(root, "SpriteStorageLibrary")).Import(spriteZip);
+byte[] repairedMetadata = File.ReadAllBytes(spriteMod.Replacements()["characters-foits.gfs"]["characters/valentine.foit"]);
+byte[] expectedMetadata = (byte[])spriteMetadata.Clone();
+System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(expectedMetadata.AsSpan(20), 32);
+System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(expectedMetadata.AsSpan(24), 48);
+Check(repairedMetadata.SequenceEqual(expectedMetadata), "Workshop import grows both art memory sizes and preserves every other FOIT byte");
+Check(File.ReadAllBytes(spriteFoit).SequenceEqual(spriteMetadata) && !spriteMod.Enabled, "sprite size repair preserves source files and imports disabled");
+Check(JsonSerializer.Deserialize<List<SpriteStorageRepair>>(File.ReadAllText(Path.Combine(spriteMod.Folder, SpriteStorage.Receipt)))!.Count == 2,
+    "sprite size repairs have a reviewable import receipt");
+Check(SpriteStorage.Repair(spriteMod).Count == 0, "sprite size repair is idempotent and retains sufficient budgets");
+File.WriteAllBytes(spriteMod.Replacements()["characters-foits.gfs"]["characters/valentine.foit"], spriteMetadata[..30]);
+Check(SpriteStorage.Repair(spriteMod).Count == 0, "unrecognized or truncated metadata is left unchanged");
 Throws(() => library.Import(sourceA), "duplicate mod IDs rejected without deleting installed version");
 string maliciousZip = Path.Combine(root, "traversal.zip");
 using (var archive = ZipFile.Open(maliciousZip, ZipArchiveMode.Create))
@@ -300,11 +327,46 @@ File.WriteAllBytes(artB,pngA); Storage.Save(Path.Combine(looseManager.Profile,"t
 string looseRollback=artA+".sgmm-delete.rollback"; File.Move(artA,looseRollback); Storage.Save(Path.Combine(looseManager.Profile,"transaction.json"),new Transaction(looseState,[new(artA,artA+".sgmm-delete.tmp",looseRollback,Crypto.Checksum(looseRollback),"")])); looseManager.Recover(); Check(File.ReadAllBytes(artA).SequenceEqual(pngOriginal),"crash recovery reverses an interrupted loose-file removal");
 Throws(()=>Manager.ValidateLooseName("Digital Art Compendium/../SkullGirls.exe"),"loose traversal outside compendium rejected"); Throws(()=>Manager.ValidateLooseName("Digital Art Compendium/payload.dll"),"loose executable payloads rejected");
 File.WriteAllText(Path.Combine(looseSourceB,"loose/Digital Art Compendium/Artwork/a.png"),"invalid image"); var invalidLoose=new Mod(looseSourceB); invalidLoose.SetEnabled(true); Throws(()=>looseManager.Apply([invalidLoose]),"invalid PNG signature rejected before installation");
+// A reinstall returning an archive to its verified original is safe to reapply.
+looseManager.Apply([looseMod]);
+File.Copy(Path.Combine(looseManager.BackupFolder,"core.gfs"),looseCore,true);
+looseManager.Apply([looseMod]);
+Check(Contents(looseCore,"core/music.ini")!="original music","reapply accepts a reinstalled archive matching its original checksum");
+looseManager.Apply([],true);
 File.WriteAllText(Path.Combine(looseGame,"SkullGirls.exe"),"MZ fixture Package %s.gfs not verified.");
 Check(ArchiveCompatibility.Required(looseGame,["core.gfs"]) && ArchiveCompatibility.Required(looseGame,["characters-foits.gfs"]) && !ArchiveCompatibility.Required(looseGame,["story_art.gfs"]),"compatibility detection distinguishes verified archives from ordinary artwork");
 Throws(()=>looseManager.Apply([looseMod]),"verified archive mods are blocked before installation without a compatible loader");
 Check(Contents(looseCore,"core/music.ini")=="original music"&&!looseManager.NeedsRecovery,"missing loader leaves archives and transaction state unchanged");
 string invalidLoader=Payload("unsupported-CoreMessaging.dll","invalid loader"); Throws(()=>ArchiveCompatibility.Install(looseGame,looseManager.Profile,invalidLoader),"unsupported loader is rejected"); Check(!File.Exists(Path.Combine(looseGame,"CoreMessaging.dll")),"rejected loader does not change game files");
+// Saved mod support must never trust missing or modified cached DLLs.
+Check(!ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile),"missing saved support returns to one-time setup");
+string cachedLoader=ArchiveCompatibility.SavedLoader(looseManager.Profile);
+Directory.CreateDirectory(Path.GetDirectoryName(cachedLoader)!);File.WriteAllText(cachedLoader,"invalid cached loader");
+Check(!ArchiveCompatibility.Saved(looseManager.Profile)&&!ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile)&&!File.Exists(Path.Combine(looseGame,"CoreMessaging.dll")),"tampered saved support is not installed");
+string? supportedLoader=Environment.GetEnvironmentVariable("SGMM_TEST_COMPATIBILITY_LOADER");
+if(supportedLoader!=null) {
+ ArchiveCompatibility.Install(looseGame,looseManager.Profile,supportedLoader);
+ Check(ArchiveCompatibility.Installed(looseGame)&&ArchiveCompatibility.Saved(looseManager.Profile),"one-time setup installs and caches verified support");
+ Directory.CreateDirectory(Path.Combine(looseGame,"data02"));
+ var redirected = new Manager(looseGame,Path.Combine(root,"LooseProfile"));
+ Check(redirected.DataFolder==Path.Combine(looseGame,"data02")&&redirected.Profile!=looseManager.Profile,"compatibility redirect targets data02 with isolated backups");
+ Check(ArchiveCompatibility.Saved(redirected.Profile),"redirected profile retains saved support");
+ File.Copy(Path.Combine(looseManager.BackupFolder,"core.gfs"),Path.Combine(looseGame,"data02","core.gfs"));
+ redirected.Apply([looseMod]);
+ Check(Contents(Path.Combine(looseGame,"data02/core.gfs"),"core/music.ini")!="original music"&&Contents(looseCore,"core/music.ini")=="original music","Apply targets data02 without changing data01");
+ redirected.Apply([],true);
+ Check(Contents(Path.Combine(looseGame,"data02/core.gfs"),"core/music.ini")=="original music"&&Contents(looseCore,"core/music.ini")=="original music","Restore originals restores data02 and leaves data01 unchanged");
+ Directory.Delete(Path.Combine(looseGame,"data02"),true);
+
+ File.Delete(Path.Combine(looseGame,"CoreMessaging.dll"));
+ Check(ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile)&&ArchiveCompatibility.Installed(looseGame),"game reinstall restores saved support without source ZIP");
+ File.WriteAllText(Path.Combine(looseGame,"CoreMessaging.dll"),"another loader");
+ Throws(()=>ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile),"saved support refuses to overwrite another loader");
+ Check(File.ReadAllText(Path.Combine(looseGame,"CoreMessaging.dll"))=="another loader","conflicting loader is preserved");
+ File.Delete(Path.Combine(looseGame,"CoreMessaging.dll"));
+ File.WriteAllText(cachedLoader,"tampered");
+ Check(!ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile),"damaged cache after successful setup requires new source");
+}
 // Explicitly adopt external archive changes while retaining previous baselines.
 string adoptGame = Path.Combine(root, "BaselineGame"), adoptData = Path.Combine(root, "BaselineData");
 Directory.CreateDirectory(Path.Combine(adoptGame, "data01")); File.WriteAllText(Path.Combine(adoptGame, "SkullGirls.exe"), "fixture");

@@ -120,6 +120,7 @@ public partial class Library
             if (Mods().Any(m => m.Info.Id == mod.Info.Id)) throw new InvalidDataException("A mod with this ID is already installed. Use a different ID for a new version.");
             int archives = mod.Replacements().Count, loose = mod.LooseFiles().Count;
             if (archives == 0 && loose == 0) throw new InvalidDataException("No replacements found. Expected archive-name.gfs/asset/path or loose/Digital Art Compendium/...png.");
+            SpriteStorage.Repair(mod);
             mod.SetEnabled(false);
             string destination = Path.Combine(Root, Guid.NewGuid().ToString("N"));
             Directory.Move(content, destination);
