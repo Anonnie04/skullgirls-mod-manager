@@ -22,6 +22,12 @@ try {
     foreach ($file in Get-ChildItem (Join-Path $PublishDirectory 'licenses') -File) {
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, "licenses/$($file.Name)") | Out-Null
     }
+    $docsDirectory = Join-Path $PublishDirectory 'docs'
+    $publishRoot = (Resolve-Path $PublishDirectory).Path.TrimEnd('\') + '\'
+    foreach ($file in Get-ChildItem $docsDirectory -Filter '*.md' -File -Recurse) {
+        $relative = $file.FullName.Substring($publishRoot.Length).Replace('\', '/')
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $relative) | Out-Null
+    }
 } finally { $archive.Dispose() }
 # Git's index is an explicit source allowlist, including staged changes before the first commit.
 $sourceTree = git write-tree
