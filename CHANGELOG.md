@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.17
 
 - Save named mod profiles with shared-library enabled selections and load order; review missing mods, changed versions and changed IDs before switching the library selection.
 - Append unsaved new mods disabled, resolve unambiguous reimports by ID, and recover failed or interrupted selection switches without changing installation baselines or restore history.
