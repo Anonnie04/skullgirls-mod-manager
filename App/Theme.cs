@@ -106,6 +106,7 @@ internal sealed class DecoTabs : Panel
         }
     }
     private int selected;
+    public event EventHandler? SelectedIndexChanged;
     private readonly List<Rectangle> buttons = [];
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public PageCollection TabPages { get; }
@@ -113,7 +114,7 @@ internal sealed class DecoTabs : Panel
     public int SelectedIndex
     {
         get => selected;
-        set { selected = value; for (int i = 0; i < TabPages.Count; i++) TabPages[i].Visible = i == selected; Invalidate(); }
+        set { bool changed = selected != value; selected = value; for (int i = 0; i < TabPages.Count; i++) TabPages[i].Visible = i == selected; Invalidate(); if (changed) SelectedIndexChanged?.Invoke(this, EventArgs.Empty); }
     }
     public DecoTabs() { TabPages = new(this); DoubleBuffered = true; Padding = new Padding(1, 42, 1, 1); TabStop = true; SetStyle(ControlStyles.Selectable, true); AccessibleName = "Workspace tabs"; }
     protected override bool IsInputKey(Keys keyData) => keyData is Keys.Left or Keys.Right or Keys.Home or Keys.End || base.IsInputKey(keyData);

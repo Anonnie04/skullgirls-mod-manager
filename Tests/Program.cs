@@ -95,6 +95,70 @@ Check(SpriteStorage.Repair(spriteMod).Count == 0, "sprite size repair is idempot
 File.WriteAllBytes(spriteMod.Replacements()["characters-foits.gfs"]["characters/valentine.foit"], spriteMetadata[..30]);
 Check(SpriteStorage.Repair(spriteMod).Count == 0, "unrecognized or truncated metadata is left unchanged");
 Throws(() => library.Import(sourceA), "duplicate mod IDs rejected without deleting installed version");
+// Updating is a standalone library operation: no game or editing tools required.
+var updates = new Library(Path.Combine(root, "UpdateLibrary"));
+var updateFirst = updates.Import(sourceA); var updateSecond = updates.Import(zip);
+updateFirst.SetEnabled(true); updates.SetOrder([updateSecond, updateFirst]);
+string updateSource = Path.Combine(root, "UpdateV2");
+Payload("UpdateV2/core.gfs/core/music.ini", "updated music");
+Payload("UpdateV2/core.gfs/core/new.ini", "new asset");
+new ModInfo { Id = "tests.a", Name = "Mod A", Version = new Version(2, 0) }.Write(Path.Combine(updateSource, "mod.json"));
+string updateZip = Path.Combine(root, "update-v2.zip"); ZipFile.CreateFromDirectory(updateSource, updateZip);
+string savedOrder = File.ReadAllText(Path.Combine(updates.Root, "order.json"));
+using (var update = updates.PrepareUpdate(updateFirst, updateZip))
+{
+    Check(update.Changes.Any(c => c.Kind == "Added" && c.Path.EndsWith("new.ini")) &&
+        update.Changes.Any(c => c.Kind == "Changed" && c.Path.EndsWith("music.ini")) &&
+        update.Changes.Any(c => c.Kind == "Removed" && c.Path.EndsWith("menu.txt")), "update preview lists added, changed and removed assets");
+    updateFirst = updates.CommitUpdate(update);
+}
+Check(updateFirst.Enabled && updateFirst.Info.Version == new Version(2, 0) && updates.Mods()[1].Folder == updateFirst.Folder &&
+    File.ReadAllText(Path.Combine(updates.Root, "order.json")) == savedOrder, "update preserves enabled selection and exact order file");
+Check(!Directory.Exists(Path.Combine(updateFirst.Folder, "ui.gfs")), "complete package update removes deleted archive assets");
+Check(Crypto.Checksum(core) == originalCore && Crypto.Checksum(ui) == originalUi, "updating the library does not touch installed game archives");
+updateFirst.SetEnabled(false);
+using (var versionRollback = updates.PrepareRollback(updateFirst)) updateFirst = updates.CommitUpdate(versionRollback);
+Check(updateFirst.Enabled && updateFirst.Info.Version == new Version(1, 0) && File.Exists(Path.Combine(updateFirst.Folder, "ui.gfs/ui/menu.txt")), "rollback restores previous complete package and enabled setting");
+using (var cancelled = updates.PrepareUpdate(updateFirst, updateSource)) { }
+Check(new Mod(updateFirst.Folder).Info.Version == new Version(1, 0) && !Directory.GetDirectories(updates.Root, ".prepared-*").Any(), "cancelled update preserves original and removes staging");
+string invalidUpdate = Path.Combine(root, "InvalidUpdate"); Directory.CreateDirectory(invalidUpdate);
+File.WriteAllText(Path.Combine(invalidUpdate, "mod.json"), "invalid JSON");
+Throws(() => updates.PrepareUpdate(updateFirst, invalidUpdate), "invalid update fails before modifying original");
+Check(new Mod(updateFirst.Folder).Enabled && new Mod(updateFirst.Folder).Info.Version == new Version(1, 0), "failed validation leaves original package and settings intact");
+using (var staleUpdate = updates.PrepareUpdate(updateFirst, updateSource))
+{
+    updateFirst.SetEnabled(false);
+    Throws(() => updates.CommitUpdate(staleUpdate), "changes to library settings after preview reject stale update");
+    updateFirst.SetEnabled(true);
+}
+using (var altered = updates.PrepareUpdate(updateFirst, updateSource))
+{
+    File.AppendAllText(Path.Combine(altered.Replacement.Folder, "core.gfs/core/music.ini"), "tamper");
+    Throws(() => updates.CommitUpdate(altered), "changed staged payload is rejected after preview");
+}
+using (var lockedUpdate = updates.PrepareUpdate(updateFirst, updateSource))
+{
+    using (var packageLock = new FileStream(Path.Combine(lockedUpdate.Replacement.Folder, "core.gfs/core/music.ini"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        Throws(() => updates.CommitUpdate(lockedUpdate), "locked replacement package fails directory swap safely");
+    Check(new Mod(updateFirst.Folder).Info.Version == new Version(1, 0) && new Mod(updateFirst.Folder).Enabled &&
+        !File.Exists(Path.Combine(updates.Root, ".mod-update.json")), "failed directory swap restores original library package and clears journal");
+}
+using (var duplicate = updates.PrepareUpdate(updateFirst, sourceB))
+    Throws(() => updates.CommitUpdate(duplicate, true), "explicit ID mapping cannot collide with another library entry");
+new ModInfo { Id = "tests.renamed", Name = "Renamed A", Version = new Version(2, 0) }.Write(Path.Combine(updateSource, "mod.json"));
+using (var mapped = updates.PrepareUpdate(updateFirst, updateSource))
+{
+    Throws(() => updates.CommitUpdate(mapped), "different ID requires explicit mapping");
+    updateFirst = updates.CommitUpdate(mapped, true);
+}
+Check(updateFirst.Info.Id == "tests.renamed" && updateFirst.Enabled && updates.Mods()[1].Folder == updateFirst.Folder, "explicit ID mapping preserves selected entry and order");
+string interruptedPrevious = Path.Combine(updates.Root, ".versions", Path.GetFileName(updateFirst.Folder), "interrupted");
+Directory.CreateDirectory(Path.GetDirectoryName(interruptedPrevious)!);
+Storage.Save(Path.Combine(updates.Root, ".mod-update.json"), new { Destination = Path.GetFileName(updateFirst.Folder), Previous = Path.GetRelativePath(updates.Root, interruptedPrevious) });
+Directory.Move(updateFirst.Folder, interruptedPrevious);
+var recoveredLibrary = new Library(updates.Root);
+Check(recoveredLibrary.Mods().Any(m => m.Folder == updateFirst.Folder && m.Info.Id == "tests.renamed") &&
+    !File.Exists(Path.Combine(updates.Root, ".mod-update.json")), "reopening library recovers an interrupted update swap");
 string maliciousZip = Path.Combine(root, "traversal.zip");
 using (var archive = ZipFile.Open(maliciousZip, ZipArchiveMode.Create))
 using (var writer = new StreamWriter(archive.CreateEntry("../../escaped.txt").Open())) writer.Write("bad");
@@ -105,9 +169,45 @@ Check(library.Mods().Select(m => m.Info.Id).SequenceEqual(["tests.a", "tests.b"]
 var manager = new Manager(game, Path.Combine(root, "Data")) { Log = Console.WriteLine };
 var plan = manager.Preview([modA, modB]);
 Check(plan.Changes.Count(c => c.Conflict) == 1, "preview reports overlapping replacements");
+var musicOutcome = plan.Outcomes.Single(o => o.Archive == "core.gfs" && o.Asset == "core/music.ini");
+Check(musicOutcome.Contributors.Select(c => c.ModFolder).SequenceEqual([modA.Folder, modB.Folder]) &&
+    musicOutcome.Winner.ModFolder == modB.Folder && musicOutcome.Contributors.Select(c => c.LoadOrder).SequenceEqual([1, 2]), "asset conflict retains all contributors, library identities, order and final winner");
+Check(manager.Preview([modB, modA]).Outcomes.Single(o => o.Asset == "core/music.ini").Winner.ModFolder == modA.Folder,
+    "reordering ordinary packages updates final asset winner");
+Check(musicOutcome.Explanation.Contains("complete file") && musicOutcome.Explanation.Contains("not establish game compatibility"),
+    "unsupported assets explain file precedence without claiming semantic compatibility");
+var cleanStatus = manager.InspectInstallation();
+Check(cleanStatus.Issues.Count == 0 && cleanStatus.TrackedArchives == 0, "fresh installation status has no tracked backups to verify");
+modB.SetEnabled(false);
+Check(!manager.Preview([modA, modB]).Outcomes.Single(o => o.Asset == "core/music.ini").Conflict,
+    "disabled contributors do not appear as conflicts"); modB.SetEnabled(true);
+// Metadata warnings depend on package bytes and supported paths, without an external editor.
+string metadataGame = Path.Combine(root, "MetadataGame"); Directory.CreateDirectory(Path.Combine(metadataGame, "data01"));
+File.WriteAllText(Path.Combine(metadataGame, "SkullGirls.exe"), "fixture");
+File.WriteAllBytes(Payload("MetadataSeed/characters/valentine.foit", ""), spriteMetadata);
+Seed(Path.Combine(root, "MetadataSeed"), Path.Combine(metadataGame, "data01/characters-foits.gfs"));
+var metadataLibrary = new Library(Path.Combine(root, "MetadataLibrary"));
+var metadataA = metadataLibrary.CreateDraft("Same display name"); var metadataB = metadataLibrary.CreateDraft("Same display name");
+foreach (var metadataMod in new[] { metadataA, metadataB })
+{
+    Directory.CreateDirectory(Path.Combine(metadataMod.Folder, "characters-foits.gfs", "characters"));
+    File.WriteAllBytes(Path.Combine(metadataMod.Folder, "characters-foits.gfs", "characters/valentine.foit"), spriteMetadata);
+    metadataMod.SetEnabled(true);
+}
+var metadataManager = new Manager(metadataGame, Path.Combine(root, "MetadataData"));
+var metadataOutcome = metadataManager.Preview([metadataA, metadataB]).Outcomes.Single();
+Check(metadataOutcome.Explanation.Contains("Recognized VRSN 9") && metadataOutcome.Explanation.Contains("palette-name table") && metadataOutcome.Explanation.Contains("associated art"),
+    "recognized character metadata warns about full-file palette and associated art effects");
+Check(metadataOutcome.Contributors[0].ModFolder != metadataOutcome.Contributors[1].ModFolder && metadataOutcome.Winner.ModFolder == metadataB.Folder,
+    "same-named mods retain distinct library identities for conflict navigation");
+File.WriteAllText(Path.Combine(metadataB.Folder, "characters-foits.gfs", "characters/valentine.foit"), "unknown format");
+Check(metadataManager.Preview([metadataA, metadataB]).Outcomes.Single().Explanation.Contains("Only file-level precedence is known"),
+    "unsupported character metadata retains file-level explanation without speculative palette compatibility");
 manager.Apply([modA, modB]);
 Check(Contents(core, "core/music.ini") == "mod B wins" && Contents(ui, "ui/menu.txt") == "mod A menu", "later mod wins and multiple archives apply");
 Check(Crypto.Checksum(Path.Combine(manager.BackupFolder, "core.gfs")) == originalCore, "verified original backup retained");
+Check(manager.InspectInstallation().Issues.Count == 0 && manager.InspectInstallation().TrackedArchives == 2,
+    "installation status verifies applied archive hashes and original backups");
 manager.Apply([modA, modB], true);
 Check(Crypto.Checksum(core) == originalCore && Crypto.Checksum(ui) == originalUi, "restore is byte-for-byte identical to originals");
 Check(modA.Enabled && modB.Enabled, "restore preserves enabled selections");
@@ -126,16 +226,28 @@ var state = JsonSerializer.Deserialize<InstallState>(File.ReadAllText(statePath)
 string rollback = core + ".sgmm-test.rollback", staged = core + ".sgmm-test.tmp";
 File.Copy(core, rollback); File.Copy(built, core, true);
 Storage.Save(Path.Combine(manager.Profile, "transaction.json"), new Transaction(state, [new(core, staged, rollback, originalCore, Crypto.Checksum(core))]));
+var pendingStatus = manager.InspectInstallation();
+Check(pendingStatus.PendingTransaction && pendingStatus.Issues.Any(i => i.Action.Contains("Recover interrupted operation")) &&
+    pendingStatus.Issues.All(i => !i.Problem.Contains("outside")), "interrupted transaction status points to recovery without mislabeling in-flight writes as external edits");
 Throws(() => manager.Preview([]), "pending transaction blocks new plans");
 manager.Recover();
 Check(Crypto.Checksum(core) == originalCore && !manager.NeedsRecovery, "persisted interrupted transaction recovers original data and state");
 modA.SetEnabled(true);
 using (var stream = new FileStream(ui, FileMode.Append)) stream.WriteByte(42);
 string externalHash = Crypto.Checksum(ui);
+Check(manager.InspectInstallation().Issues.Any(i => i.Target == "ui.gfs" && i.Problem.Contains("outside") && i.Action.Contains("Update archive")),
+    "status names externally changed archive and explains explicit baseline adoption");
+Check(Crypto.Checksum(ui) == externalHash && Crypto.Checksum(core) == originalCore, "status inspection preserves installed archive bytes");
 Throws(() => manager.Apply([modA]), "externally modified archive blocks apply before any commit");
 Check(Crypto.Checksum(core) == originalCore && Crypto.Checksum(ui) == externalHash, "external archive changes are preserved");
 File.Copy(Path.Combine(manager.BackupFolder, "ui.gfs"), ui, true);
 File.AppendAllText(Path.Combine(manager.BackupFolder, "core.gfs"), "tamper");
+Check(manager.InspectInstallation().Issues.Any(i => i.Target == "core.gfs" && i.Problem.Contains("checksum failed")),
+    "status identifies damaged original backup before Apply");
+File.Move(Path.Combine(manager.BackupFolder, "ui.gfs"), Path.Combine(manager.BackupFolder, "ui.gfs.saved"));
+Check(manager.InspectInstallation().Issues.Any(i => i.Target == "ui.gfs" && i.Problem.Contains("backup is missing")),
+    "status reports missing backup alongside other verification problems");
+File.Move(Path.Combine(manager.BackupFolder, "ui.gfs.saved"), Path.Combine(manager.BackupFolder, "ui.gfs"));
 Throws(() => manager.Apply([modA]), "tampered backup blocks writes");
 Check(Crypto.Checksum(core) == originalCore, "tampered backup never reaches game archive");
 // Read actual installed game files only; generated archive stays in TestResults.
@@ -315,6 +427,8 @@ string looseSourceB=Path.Combine(root,"LooseOnly"); Directory.CreateDirectory(Pa
 new ModInfo{Id="tests.loose.b",Name="Loose-only mod",Version=new(1,0)}.Write(Path.Combine(looseSourceB,"mod.json")); File.WriteAllBytes(Path.Combine(looseSourceB,"loose/Digital Art Compendium/Artwork/a.png"),pngB);
 string looseZip=Path.Combine(root,"loose-only.zip"); ZipFile.CreateFromDirectory(looseSourceB,looseZip); var looseOther=looseLibrary.Import(looseZip); looseOther.SetEnabled(true);
 Check(!new Mod(looseSourceB).Enabled&&looseManager.Preview([looseMod,looseOther]).Changes.Count(c=>c.Conflict)==1,"loose-only ZIP imports and overlapping artwork is reported");
+Check(looseManager.Preview([looseMod,looseOther]).Outcomes.Single(o => o.Archive == "Loose files" && o.Conflict).Winner.ModFolder == looseOther.Folder,
+    "loose-file conflicts identify final winner and navigable library entry");
 looseManager.Apply([looseMod,looseOther]); Check(File.ReadAllBytes(artA).SequenceEqual(pngB),"later mod wins loose-file conflicts");
 looseOther.SetEnabled(false); looseManager.Apply([looseMod,looseOther]); Check(File.ReadAllBytes(artA).SequenceEqual(pngA),"disabling later loose mod reveals earlier replacement");
 File.WriteAllBytes(artA,pngB); Throws(()=>looseManager.Apply([looseMod]),"external loose-file edits block apply"); Check(File.ReadAllBytes(artA).SequenceEqual(pngB),"external artwork edits are preserved"); File.WriteAllBytes(artA,pngA);
@@ -402,6 +516,9 @@ var interrupted = adopt.ReviewArchiveUpdate("core.gfs");
 using (var held = new FileStream(adoptedState, FileMode.Open, FileAccess.Read, FileShare.Read))
     Throws(() => adopt.UpdateArchiveBaseline(interrupted), "interrupted state publication leaves a recoverable baseline update");
 Check(adopt.NeedsRecovery, "interrupted baseline updates block later operations");
+var baselineStatus = adopt.InspectInstallation();
+Check(baselineStatus.PendingBaselineUpdate && baselineStatus.HistoryCount > 0 && baselineStatus.Issues.Any(i => i.Problem.Contains("baseline update")),
+    "status reports interrupted baseline update and retained history without performing recovery");
 Throws(() => adopt.Apply([modA]), "Apply refuses an unfinished baseline update");
 string interruptedHash = Crypto.Checksum(adoptCore); File.Copy(newArchive, adoptCore, true);
 Throws(() => adopt.Recover(), "baseline recovery refuses newer external archive changes");
@@ -412,5 +529,99 @@ File.WriteAllText(previousSnapshot,"tamper"); Throws(() => adopt.Recover(), "bas
 adopt.Recover();
 Check(!adopt.NeedsRecovery && Crypto.Checksum(adoptCore) == interruptedHash && Crypto.Checksum(priorBackup) == interruptedHash, "baseline recovery completes adoption without writing game files");
 adopt.Apply([modA],true); Check(Crypto.Checksum(adoptCore)==interruptedHash,"Restore after recovered adoption uses the new baseline");
+string inspectedState = File.ReadAllText(adoptedState);
+var inspectedHistory = Directory.GetFiles(adopt.BaselineHistory, "*", SearchOption.AllDirectories).ToDictionary(p => p, Crypto.Checksum);
+var historyStatus = adopt.InspectInstallation();
+Check(!historyStatus.NeedsRecovery && historyStatus.HistoryCount > 0 && historyStatus.Issues.Count == 0 &&
+    File.ReadAllText(adoptedState) == inspectedState && inspectedHistory.All(p => Crypto.Checksum(p.Key) == p.Value),
+    "status enumerates available baseline history without altering saved state or history snapshots");
+File.Move(adoptCore, adoptCore + ".missing-test");
+Check(adopt.InspectInstallation().Issues.Any(i => i.Target == "core.gfs" && i.Problem.Contains("Installed file is missing")),
+    "status identifies missing installed archive without blocking backup inspection");
+File.Move(adoptCore + ".missing-test", adoptCore);
+using (var heldStatusBackup = new FileStream(priorBackup, FileMode.Open, FileAccess.Read, FileShare.None))
+    Check(adopt.InspectInstallation().Issues.Any(i => i.Target == "core.gfs" && i.Problem.Contains("Cannot verify backup")),
+        "status reports unreadable backups instead of abandoning inspection");
+File.WriteAllText(adoptedState, "invalid JSON");
+Check(adopt.InspectInstallation().Issues.Any(i => i.Target == "Backup state"), "unreadable saved state becomes an actionable status issue");
+File.WriteAllText(adoptedState, inspectedState);
+// Named profiles share the library and never touch installation backups or history.
+var profileLibrary = new Library(Path.Combine(root, "ProfileLibrary"));
+var profileA = profileLibrary.Import(sourceA); var profileB = profileLibrary.Import(zip);
+profileA.SetEnabled(true); profileLibrary.SetOrder([profileB, profileA]);
+var eveningProfile = profileLibrary.SaveProfile("Evening");
+Check(eveningProfile.Mods.Select(m => m.Id).SequenceEqual(["tests.b", "tests.a"]) && eveningProfile.Mods[1].Enabled && !eveningProfile.Mods[0].Enabled,
+    "profile saves the complete shared-library order and enabled selection");
+profileB.SetEnabled(true); profileA.SetEnabled(false); profileLibrary.SetOrder([profileA, profileB]);
+var daytimeProfile = profileLibrary.SaveProfile("Daytime");
+var switchEvening = profileLibrary.ReviewProfile(eveningProfile.Id);
+Check(!profileA.Enabled && profileB.Enabled && profileLibrary.Mods()[0].Folder == profileA.Folder,
+    "profile review does not change enabled selection or order");
+profileLibrary.SwitchProfile(switchEvening);
+Check(profileA.Enabled && !profileB.Enabled && profileLibrary.Mods()[0].Folder == profileB.Folder,
+    "switching a named profile restores saved selection and exact order");
+profileLibrary.SwitchProfile(profileLibrary.ReviewProfile(daytimeProfile.Id));
+Check(!profileA.Enabled && profileB.Enabled && profileLibrary.Mods()[0].Folder == profileA.Folder,
+    "switching between two profiles restores independent selections");
+Check(new Library(profileLibrary.Root).Profiles().Select(p => p.Name).SequenceEqual(["Daytime", "Evening"]),
+    "named profiles persist across library reload");
+Throws(() => profileLibrary.SaveProfile("evening"), "duplicate profile names require explicit overwrite regardless of case");
+var overwrittenProfile = profileLibrary.SaveProfile("EVENING", true);
+Check(overwrittenProfile.Id == eveningProfile.Id && profileLibrary.Profiles().Count == 2,
+    "explicit overwrite keeps profile identity and avoids duplicates");
+Throws(() => profileLibrary.SaveProfile("  "), "blank profile name rejected");
+Throws(() => profileLibrary.SaveProfile(new string('x', 81)), "overlong profile name rejected");
+var extraProfileMod = profileLibrary.CreateDraft("New library mod"); extraProfileMod.SetEnabled(true);
+var withExtra = profileLibrary.ReviewProfile(daytimeProfile.Id);
+Check(withExtra.Rows.Last().Folder == extraProfileMod.Folder && !withExtra.Rows.Last().Enabled && withExtra.Rows.Last().Order == 3,
+    "mods added after saving a profile are appended and proposed disabled");
+profileLibrary.SwitchProfile(withExtra); Check(!extraProfileMod.Enabled, "profile switch disables unsaved new mods");
+// Reuse ordinary update packages to check version and identity notices.
+new ModInfo { Id = "tests.a", Name = "Mod A", Version = new Version(2, 0) }.Write(Path.Combine(updateSource, "mod.json"));
+using (var profileUpdate = profileLibrary.PrepareUpdate(profileA, updateSource)) profileA = profileLibrary.CommitUpdate(profileUpdate);
+Check(profileLibrary.ReviewProfile(daytimeProfile.Id).Rows.Any(r => r.Folder == profileA.Folder && r.SavedVersion == "1.0" && r.CurrentVersion == "2.0" && r.Note.Contains("Version changed")),
+    "profile review identifies saved versus current mod versions before switching");
+Directory.Move(profileB.Folder, Path.Combine(root, "RemovedProfileModB"));
+var missingProfile = profileLibrary.ReviewProfile(daytimeProfile.Id);
+Check(missingProfile.Rows.Any(r => r.Folder == null && r.Name == "Mod B" && r.CurrentVersion == "Missing"),
+    "profile review lists a missing saved mod without silently replacing it");
+profileLibrary.SwitchProfile(missingProfile);
+Check(profileLibrary.Mods().Count == 2 && profileLibrary.Mods()[0].Folder == profileA.Folder,
+    "explicitly reviewed incomplete profile loads available entries in saved order");
+profileB = profileLibrary.Import(zip);
+Check(profileLibrary.ReviewProfile(daytimeProfile.Id).Rows.Any(r => r.Folder == profileB.Folder && r.Note.Contains("Resolved reimport")),
+    "profile resolves a reimport by unambiguous mod ID");
+var staleProfile = profileLibrary.ReviewProfile(daytimeProfile.Id); profileB.SetEnabled(!profileB.Enabled);
+Throws(() => profileLibrary.SwitchProfile(staleProfile), "changed library selection invalidates a profile switch review");
+var editedProfile = profileLibrary.ReviewProfile(daytimeProfile.Id); profileLibrary.SaveProfile("Daytime", true);
+Throws(() => profileLibrary.SwitchProfile(editedProfile), "overwritten saved profile invalidates a switch review");
+// Force an enabled-marker failure after another marker changes.
+profileA.SetEnabled(false); profileB.SetEnabled(true);
+profileLibrary.SetOrder([profileB, profileA, extraProfileMod]);
+var failureTarget = profileLibrary.SaveProfile("Failure target");
+profileA.SetEnabled(true); profileB.SetEnabled(false);
+profileLibrary.SetOrder([profileA, profileB, extraProfileMod]);
+string beforeFailedSwitch = File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json"));
+using (var markerLock = new FileStream(Path.Combine(profileA.Folder, "enabled"), FileMode.Open, FileAccess.Read, FileShare.Read))
+    Throws(() => profileLibrary.SwitchProfile(profileLibrary.ReviewProfile(failureTarget.Id)), "locked enabled marker safely fails a partial profile switch");
+Check(profileA.Enabled && !profileB.Enabled && File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json")) == beforeFailedSwitch
+    && !File.Exists(Path.Combine(profileLibrary.Root, ".profile-switch.json")), "failed profile switch restores prior markers and order");
+using (var orderLock = new FileStream(Path.Combine(profileLibrary.Root, "order.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+    Throws(() => profileLibrary.SwitchProfile(profileLibrary.ReviewProfile(failureTarget.Id)), "locked order file rolls back changed enabled markers");
+Check(profileA.Enabled && !profileB.Enabled && File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json")) == beforeFailedSwitch
+    && !File.Exists(Path.Combine(profileLibrary.Root, ".profile-switch.json")), "failed order publication leaves exact prior selection and order intact");
+Storage.Save(Path.Combine(profileLibrary.Root, ".profile-switch.json"), new
+{
+    Before = new[] { new ProfileSelection(Path.GetFileName(profileA.Folder), true), new ProfileSelection(Path.GetFileName(profileB.Folder), false), new ProfileSelection(Path.GetFileName(extraProfileMod.Folder), false) },
+    Order = beforeFailedSwitch
+});
+profileA.SetEnabled(false); profileB.SetEnabled(true); profileLibrary.SetOrder([profileA, profileB, extraProfileMod]);
+var afterCrashProfile = new Library(profileLibrary.Root);
+Check(profileA.Enabled && !profileB.Enabled && File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json")) == beforeFailedSwitch
+    && !File.Exists(Path.Combine(profileLibrary.Root, ".profile-switch.json")), "library reopen recovers interrupted profile selection and order");
+Check(Crypto.Checksum(adoptCore) == interruptedHash && File.ReadAllText(adoptedState) == inspectedState &&
+    inspectedHistory.All(p => Crypto.Checksum(p.Key) == p.Value), "saving and switching named profiles preserves game archives, installation baseline state and restore history");
+Check(!Directory.GetDirectories(profileLibrary.Root, "backups", SearchOption.AllDirectories).Any()
+    && !Directory.GetDirectories(profileLibrary.Root, "profiles", SearchOption.AllDirectories).Any(), "named profiles store shared-library references without duplicating installation backups");
 File.WriteAllText(Path.Combine(root, "results.txt"), $"{passed} checks passed. Actual installed game files were opened read-only.\n");
 Console.WriteLine($"\n{passed} checks passed. Results: {root}");

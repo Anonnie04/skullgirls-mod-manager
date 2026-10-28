@@ -24,11 +24,13 @@ public partial class Manager
     private static string HashOrMissing(string path) => File.Exists(path) ? Crypto.Checksum(path) : "";
     private Plan PlanLoose(IEnumerable<Mod> mods, InstallState state, Plan plan)
     {
+        var ordered = mods.ToList();
         foreach (var mod in mods.Where(m => m.Enabled))
         foreach (var file in mod.LooseFiles())
         {
             string target = LooseTarget(file.Key);
-            plan.Changes.Add(new("Loose files", file.Key, mod.Info.Name, File.Exists(target) ? "Replace" : "Add", plan.LooseFiles.ContainsKey(file.Key)));
+            plan.Changes.Add(new("Loose files", file.Key, mod.Info.Name, File.Exists(target) ? "Replace" : "Add", plan.LooseFiles.ContainsKey(file.Key))
+                { ModFolder = mod.Folder, LoadOrder = ordered.IndexOf(mod) + 1 });
             plan.LooseFiles[file.Key] = file.Value;
         }
         foreach (var known in state.LooseFiles.Where(p => p.Value.LastHash != p.Value.OriginalHash && !plan.LooseFiles.ContainsKey(p.Key)))

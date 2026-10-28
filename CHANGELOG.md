@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Save named mod profiles with shared-library enabled selections and load order; review missing mods, changed versions and changed IDs before switching the library selection.
+- Append unsaved new mods disabled, resolve unambiguous reimports by ID, and recover failed or interrupted selection switches without changing installation baselines or restore history.
+
+- Explain conflicts per asset with all contributing mods, load-order positions and final winner; navigate directly to each library entry and refresh the winner after reordering.
+- Warn about palette and associated art effects for recognized VRSN 9 character metadata, retaining file-level explanations for unsupported content.
+- Show read-only installation recovery status, external changes, backup verification problems and baseline history through Backups & tools, using existing recovery and baseline actions.
+- Make UI smoke startup deterministic and verify update/rollback reviews, explicit ID mapping, conflict navigation and compact layouts.
+- Update imported mods from complete folders or ZIPs while preserving enabled status, selection and load order.
+- Review versions and added, changed and removed assets; require explicit mapping for a different mod ID.
+- Retain previous packages and enabled settings for version rollback, reject packages changed after preview, and recover interrupted library swaps on startup.
+
 ## 0.3.16
 
 - Grow VRSN 9 character art memory sizes on import when a sprite package supplies larger art banks with stale FOIT sizes.

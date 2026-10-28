@@ -42,6 +42,9 @@ public static class SpriteStorage
         return result;
     }
 
+    public static bool RecognizesMetadata(byte[] bytes, string asset) =>
+        SizeTable(bytes, Path.GetFileNameWithoutExtension(asset).Replace("boss_marie", "bossmarie")) >= 0;
+
     private static int SizeTable(byte[] bytes, string name)
     {
         if (bytes.Length < 12 || !bytes.AsSpan(4, 4).SequenceEqual("VRSN"u8)

@@ -4,6 +4,7 @@
 
 - [Set up the manager](#set-up-the-manager)
 - [Install and manage mods](#install-and-manage-mods)
+- [Named mod profiles](#named-mod-profiles)
 - [Create a mod from an asset preview](#create-a-mod-from-an-asset-preview)
 - [Browse and preview assets](#browse-and-preview-assets)
 - [Mod file layout](#mod-file-layout)
@@ -28,11 +29,39 @@ Unknown DLLs are never overwritten. The loader is user-supplied, not bundled wit
 
 1. Connect the folder containing `SkullGirls.exe` and `data01`. Steam libraries are searched automatically; use Browse if the game is elsewhere.
 2. Import a replacement **folder** or **ZIP**. New imports are disabled. Enable the mods you want with the checkboxes; use Move up/down for order. Later mods win conflicts.
-3. Click **Preview changes** to review affected archive entries. Burgundy override rows replace an earlier mod's asset.
+3. Click **Preview changes** to review affected assets. Burgundy rows mark conflicting files and name the final winning mod.
 4. Close Skullgirls and click **Apply enabled mods**. The application stages and verifies every affected archive before installing anything. It keeps backups per installation.
 5. **Restore originals** reinstalls the saved archive baselines. These start as the files captured before the manager's first change; Update archive can explicitly adopt a newer baseline. Enabled selections are retained. Disabling/removing mods and applying removes changes made over the saved baselines.
 
 Use **New mod**, **Game archives > Preview assets**, or double-click an archive to open the asset browser. Switch archives, search paths or filter by type, then select an asset. New mod opens story artwork first and lets you build the mod by dropping replacements.
+
+### Update an imported mod
+
+Select a library entry, then choose **Update mod… > Update from folder…** or **Update from ZIP…**. Choose the complete replacement package. Review the old and new versions and the added, changed and removed assets, then click **Update library**. Enabled status, selection and load-order position are retained. Files absent from the new package are removed from the library entry. Validation failures and cancelled reviews leave the current package intact.
+
+Packages should retain their mod ID. If the ID differs, explicitly check the mapping option to replace the selected entry; an ID already used by another library entry is rejected. Packages without mod.json receive a generated local ID and also need this mapping.
+
+**Update mod… > Restore previous version…** previews the most recently retained package and its saved enabled status. Confirm **Restore version** to restore it at the same load-order position. Each replacement retains the outgoing package under `Mods/.versions`, so the next restore can undo the last version switch. Keep this folder for rollback. An interrupted package swap is recovered automatically when the manager next opens the library.
+
+Updating or restoring a library version does not change the game. Use **Preview changes**, then **Apply enabled mods** to install the selected contents. No external editor is required.
+
+### Named mod profiles
+
+Use **Profiles…** under the library to save named sets of enabled mods and load order. **Save current…** captures the current library selection; enter a name and confirm replacement if that name already exists. Later checkbox and order changes do not automatically overwrite the saved profile. Save your current setup before switching if you want to return to it.
+
+Select a saved profile and choose **Preview switch…**. The review shows the proposed order and enabled state, saved and current package versions, changed mod IDs, and missing entries. Confirm **Switch library selection** to load it. Available mods retain their saved relative order. Missing entries are omitted; mods added since the profile was saved move to the end and are disabled. A reimport can be matched by its mod ID when that match is unambiguous.
+
+Profiles reference the shared library. They do not duplicate packages, pin old package contents, or copy game backups. Version warnings compare the packages' declared version labels; use **Update mod… > Restore previous version…** if you need an earlier retained package. Switching profiles does not install anything: use **Preview changes**, then the usual **Apply enabled mods** action.
+
+Profiles are saved in `Mods/.mod-profiles.json` alongside the shared library. Keep that file and the library together. Profiles are separate from installation-specific baseline state and recovery history; switching never adopts a new baseline, restores game files, or discards history. An interrupted library-selection switch restores the previous enabled settings and order when the manager next opens the library.
+
+### Explain conflicts
+
+In **Change preview**, select an asset to see every enabled mod contributing to its exact archive and asset path. The contributor table shows library load-order positions, overridden files and the final winner. Later enabled mods win; the complete winning file replaces earlier contributions without merging them. Use **Go to selected mod** or double-click a contributor to select its library entry and open its details. Mods with identical display names still navigate to their own entries. Loose artwork uses the same explanation.
+
+Move a mod up or down while a preview is displayed to refresh the preview and winner automatically. Changing enabled selections clears the old preview; click **Preview changes** again.
+
+Recognized VRSN 9 character metadata gets a warning about whole-file replacement of its palette-name table and art memory sizes. Check the winning metadata against the enabled palette and art packages. Unrecognized metadata retains file-level precedence information. Successful repacking does not establish semantic compatibility, and these checks do not depend on an external editor.
 
 ### Active archive folder
 
@@ -130,6 +159,14 @@ Each ID must be unique. To replace an imported version, remove it from the libra
 ### Interrupted operations
 
 Applying uses a persistent transaction journal, temporary files next to the game archives, atomic per-file replacement and rollback copies. A failure rolls back already-installed archives. After a process interruption, use **Backups & tools > Recover interrupted operation** before applying or launching from the manager. This also completes an interrupted archive-baseline update after checking the preserved snapshots and current game file. Keep enough free space for backups and staged copies; the apply review gives a rough allowance.
+
+### Inspect installation and recovery status
+
+Open **Backups & tools** or click **Refresh status** to check the connected installation's tracked archives and loose files against saved hashes. The view identifies pending installation or baseline-update journals, externally changed files, missing files, missing or damaged original backups, and the number of retained baseline history entries. Untracked files have no saved baseline to verify. Verification can take time for large archives and reports a point-in-time result; Apply and recovery still perform their own checks.
+
+For an interrupted operation, use the existing **Recover interrupted operation** action. The status view does not label in-flight transaction changes as external edits. For an externally changed archive, review it in **Game archives** before choosing **Update archive…**. Inspect backup problems before applying or restoring; opening **Open backup folder** or **Open baseline history** does not change game files.
+
+**Restore originals** installs the saved baseline and removes mod-added files. **Update archive…** instead keeps the installed archive as the new baseline, including customizations already present, and preserves the old backup and state in history. Merely checking status performs neither action.
 
 ### Changed archives and baseline updates
 

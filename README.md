@@ -7,6 +7,7 @@ Import mods, preview their changes, and apply them with verified backups.
 [Download](https://github.com/Anonnie04/skullgirls-mod-manager/releases/latest) · [User guide](docs/USER_GUIDE.md) · [Report an issue](https://github.com/Anonnie04/skullgirls-mod-manager/issues)
 
 - Import mod folders or ZIPs and control load order.
+- Save and switch named mod selections and load orders with profile reviews.
 - Preview images, audio and text from game archives.
 - Create replacement mods by dropping files onto asset previews.
 - Review conflicts, apply enabled mods, and restore saved originals.

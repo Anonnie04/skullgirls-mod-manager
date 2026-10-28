@@ -58,9 +58,10 @@ public partial class Library
 {
     public string Root { get; }
     private string OrderFile => Path.Combine(Root, "order.json");
-    public Library(string root) { Root = Path.GetFullPath(root); Directory.CreateDirectory(Root); }
+    public Library(string root) { Root = Path.GetFullPath(root); Directory.CreateDirectory(Root); RecoverUpdate(); RecoverProfileSwitch(); }
     public List<Mod> Mods()
     {
+        if (File.Exists(ProfileSwitchJournal)) throw new InvalidOperationException("An interrupted profile switch needs recovery. Reopen the library before making changes.");
         var order = File.Exists(OrderFile) ? JsonSerializer.Deserialize<List<string>>(File.ReadAllText(OrderFile)) ?? [] : [];
         return Directory.GetDirectories(Root).Where(p => !Path.GetFileName(p).StartsWith('.') && File.Exists(Path.Combine(p, Mod.MODINFO_NAME)))
             .Select(p => new Mod(p)).OrderBy(m => { int n = order.IndexOf(Path.GetFileName(m.Folder)); return n < 0 ? int.MaxValue : n; })
@@ -68,7 +69,16 @@ public partial class Library
     }
     public void SetOrder(IEnumerable<Mod> mods) => Storage.Save(OrderFile, mods.Select(m => Path.GetFileName(m.Folder)).ToList());
 
-    public Mod Import(string input)
+    public Mod Import(string input) => StagePackage(input, mod =>
+    {
+        if (Mods().Any(m => m.Info.Id == mod.Info.Id)) throw new InvalidDataException("A mod with this ID is already installed. Select it and use Update mod.");
+        mod.SetEnabled(false);
+        string destination = Path.Combine(Root, Guid.NewGuid().ToString("N"));
+        Directory.Move(mod.Folder, destination);
+        return new Mod(destination);
+    });
+
+    private T StagePackage<T>(string input, Func<Mod, T> accept)
     {
         string staging = Path.Combine(Root, ".import-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
@@ -117,14 +127,10 @@ public partial class Library
             }
             var mod = new Mod(content);
             if (string.IsNullOrWhiteSpace(mod.Info.Id) || string.IsNullOrWhiteSpace(mod.Info.Name)) throw new InvalidDataException("A mod needs an id and name.");
-            if (Mods().Any(m => m.Info.Id == mod.Info.Id)) throw new InvalidDataException("A mod with this ID is already installed. Use a different ID for a new version.");
             int archives = mod.Replacements().Count, loose = mod.LooseFiles().Count;
             if (archives == 0 && loose == 0) throw new InvalidDataException("No replacements found. Expected archive-name.gfs/asset/path or loose/Digital Art Compendium/...png.");
             SpriteStorage.Repair(mod);
-            mod.SetEnabled(false);
-            string destination = Path.Combine(Root, Guid.NewGuid().ToString("N"));
-            Directory.Move(content, destination);
-            return new Mod(destination);
+            return accept(mod);
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
     }

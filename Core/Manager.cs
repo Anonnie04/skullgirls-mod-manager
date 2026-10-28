@@ -6,7 +6,11 @@ using ThemModdingHerds.VelvetBeautifier.Utilities;
 
 namespace SkullgirlsModManager;
 
-public record Change(string Archive, string Asset, string Mod, string Action, bool Conflict);
+public record Change(string Archive, string Asset, string Mod, string Action, bool Conflict)
+{
+    public string? ModFolder { get; init; }
+    public int LoadOrder { get; init; }
+}
 public class ArchiveState
 {
     public string OriginalHash { get; set; } = "";
@@ -23,6 +27,7 @@ public record Plan(List<Change> Changes, Dictionary<string, Dictionary<string, s
 {
     public Dictionary<string, string> LooseFiles { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> LooseRestore { get; init; } = [];
+    public List<AssetOutcome> Outcomes { get; init; } = [];
 }
 
 public partial class Manager
@@ -94,7 +99,7 @@ public partial class Manager
     {
         if (NeedsRecovery) throw new InvalidOperationException("Recover the interrupted operation first.");
         var state = State();
-        mods = mods.ToList();
+        var ordered = mods.ToList(); mods = ordered;
         var changes = new List<Change>();
         var replacements = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         var entries = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -111,13 +116,15 @@ public partial class Manager
             foreach (var asset in archive.Value)
             {
                 bool conflict = replacements[archive.Key].ContainsKey(asset.Key);
-                changes.Add(new(archive.Key, asset.Key, mod.Info.Name, names.Contains(asset.Key) ? "Replace" : "Add", conflict));
+                changes.Add(new(archive.Key, asset.Key, mod.Info.Name, names.Contains(asset.Key) ? "Replace" : "Add", conflict)
+                    { ModFolder = mod.Folder, LoadOrder = ordered.IndexOf(mod) + 1 });
                 replacements[archive.Key][asset.Key] = asset.Value;
             }
         }
         var restore = state.Archives.Where(p => p.Value.LastHash != p.Value.OriginalHash && !replacements.ContainsKey(p.Key)).Select(p => p.Key).ToList();
         foreach (string archive in restore) changes.Add(new(archive, "(whole archive)", "Original backup", "Restore", false));
-        return PlanLoose(mods, state, new(changes, replacements, restore));
+        var plan = PlanLoose(mods, state, new(changes, replacements, restore));
+        return plan with { Outcomes = ExplainOutcomes(plan) };
     }
 
     public void Apply(IEnumerable<Mod> mods, bool restoreAll = false)
