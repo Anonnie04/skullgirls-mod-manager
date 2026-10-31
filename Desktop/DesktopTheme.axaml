@@ -1,0 +1,53 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Palette matched to App/Theme.cs. -->
+  <Styles.Resources>
+    <SolidColorBrush x:Key="DecoBackground">#17141A</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoPanel">#231E25</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoField">#131217</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoGold">#D8B777</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoText">#EFE4CF</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoMuted">#B1A49B</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoBurgundy">#6B2536</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoSelected">#523A34</SolidColorBrush>
+    <SolidColorBrush x:Key="DecoLine">#4F3F3B</SolidColorBrush>
+    <Color x:Key="SystemAccentColor">#D8B777</Color>
+  </Styles.Resources>
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource DecoBackground}" />
+    <Setter Property="Foreground" Value="{StaticResource DecoText}" />
+  </Style>
+  <Style Selector="TextBlock.title, TextBlock.section">
+    <Setter Property="Foreground" Value="{StaticResource DecoGold}" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="Background" Value="{StaticResource DecoPanel}" />
+    <Setter Property="Foreground" Value="{StaticResource DecoGold}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DecoGold}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="12,8" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource DecoBurgundy}" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DecoSelected}" />
+    <Setter Property="Foreground" Value="{StaticResource DecoGold}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DecoGold}" />
+  </Style>
+  <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DecoBurgundy}" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{StaticResource DecoField}" />
+    <Setter Property="Foreground" Value="{StaticResource DecoText}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DecoLine}" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="CaretBrush" Value="{StaticResource DecoGold}" />
+    <Setter Property="SelectionBrush" Value="{StaticResource DecoSelected}" />
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{StaticResource DecoText}" />
+  </Style>
+</Styles>

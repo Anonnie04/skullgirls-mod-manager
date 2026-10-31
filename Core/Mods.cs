@@ -86,8 +86,10 @@ public partial class Library
         {
             if (Directory.Exists(input))
             {
-                if (Path.GetFullPath(input).TrimEnd('\\').Equals(Root, StringComparison.OrdinalIgnoreCase)
-                    || Root.StartsWith(Path.GetFullPath(input).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                string sourceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(input));
+                var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (sourceRoot.Equals(Root, comparison)
+                    || Root.StartsWith(sourceRoot + Path.DirectorySeparatorChar, comparison))
                     throw new InvalidDataException("Choose a mod folder outside the library.");
                 foreach (string file in Walk(input))
                 {

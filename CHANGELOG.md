@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Add a native Linux x64 graphical app with an Art Deco skull crest, geometric borders, and burgundy-and-gold styling.
+- Discover and reconnect to standard, Snap, Flatpak and additional Steam libraries automatically.
+- Import existing Windows GFS replacement and loose-artwork ZIPs unchanged, with enable controls, ordering, reviews, backups, restore and recovery.
+- Add reversible native archive support for one audited Linux executable, with exact before/after checksums, original backup, permission preservation and unknown-build rejection.
+- Normalize Windows ZIP separators and enforce case-sensitive Unix path containment.
+- Add Linux builds, release packaging and native compatibility regression checks.
+- AOTC 0.15.1 was applied and confirmed working with the supported native Linux build. Windows DLL plugins are not translated.
+
 ## 0.3.17
 
 - Save named mod profiles with shared-library enabled selections and load order; review missing mods, changed versions and changed IDs before switching the library selection.

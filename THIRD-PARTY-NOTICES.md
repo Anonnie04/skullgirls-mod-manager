@@ -43,3 +43,9 @@ MIT license reproduced in `licenses/IO-MIT.txt`, copied from the package. The ap
 PNG/JPEG/BMP replacements are encoded as matching DDS textures using [BCnEncoder.NET](https://github.com/Nominom/BCnEncoder.NET), Copyright 2020 Nomi Lakkala, under the MIT option of its dual license. The pinned package's source commit is `74eda8a330759d81e6307f19aefc547e40687825`; license included in `licenses/BCnEncoder-MIT.txt`.
 
 Its managed dependency CommunityToolkit.HighPerformance is licensed by the .NET Foundation and Contributors under MIT. The package license and notices are included in `licenses/CommunityToolkit-MIT.md` and `licenses/CommunityToolkit-ThirdPartyNotices.txt`. No ImageSharp dependency is used; ordinary image input uses Windows System.Drawing.
+
+## Avalonia 11.3.9
+
+The native Linux desktop frontend uses Avalonia Desktop and Fluent themes.
+Source and license: https://github.com/AvaloniaUI/Avalonia (MIT).
+Avalonia's transitive native rendering dependencies retain their own licenses.

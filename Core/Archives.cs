@@ -13,11 +13,11 @@ public static class SafePaths
 {
     public static string Under(string root, string relative)
     {
-        if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative.Contains(':'))
+        if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative.Contains(':') || relative.StartsWith('\\'))
             throw new InvalidDataException($"Invalid relative path: {relative}");
         string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        string result = Path.GetFullPath(Path.Combine(fullRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
-        if (!result.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+        string result = Path.GetFullPath(Path.Combine(fullRoot, relative.Replace('\\', '/').Replace('/', Path.DirectorySeparatorChar)));
+        if (!result.StartsWith(fullRoot, (OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)))
             throw new InvalidDataException($"Path escapes its folder: {relative}");
         return result;
     }

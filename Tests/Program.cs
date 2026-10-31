@@ -32,6 +32,80 @@ string Contents(string archive, string path)
     using var stream = File.OpenRead(archive); stream.Position = entry.Offset;
     var bytes = new byte[(int)entry.Size]; stream.ReadExactly(bytes); return System.Text.Encoding.UTF8.GetString(bytes);
 }
+Throws(() => SafePaths.Under(Path.Combine(root, "safe"), "../escape"), "parent traversal rejected");
+Throws(() => SafePaths.Under(Path.Combine(root, "safe"), @"..\escape"), "Windows separator traversal rejected on all platforms");
+if (!OperatingSystem.IsWindows())
+    Throws(() => SafePaths.Under(Path.Combine(root, "safe"), "../SAFE/escape"), "case-sensitive sibling escape rejected on Unix");
+Check(SafePaths.Under(root, @"nested\file.txt") == Path.Combine(root, "nested", "file.txt"), "ZIP Windows separators normalize on Unix");
+var realZip = Environment.GetEnvironmentVariable("SKULLGIRLS_MOD_ZIP");
+if (!string.IsNullOrEmpty(realZip))
+{
+    string beforeZip = Crypto.Checksum(realZip);
+    var realMod = new Library(Path.Combine(root, "RealPackageLibrary")).Import(realZip);
+    Check(realMod.Replacements().Count > 0 && realMod.LooseFiles().Count > 0, "real ZIP imports archive and loose replacements");
+    Check(!realMod.Enabled && beforeZip == Crypto.Checksum(realZip), "real ZIP stays byte-identical and imported mod starts disabled");
+    string? nativeRoot = Environment.GetEnvironmentVariable("SKULLGIRLS_NATIVE_ROOT");
+    if (!string.IsNullOrEmpty(nativeRoot))
+    {
+        int missing = 0, additions = 0;
+        foreach (var archive in realMod.Replacements())
+        {
+            string target = Path.Combine(nativeRoot, "data01", archive.Key);
+            if (!File.Exists(target)) { Console.WriteLine("MISSING ARCHIVE " + archive.Key); missing++; continue; }
+            var names = Archives.Read(target).Entries.Select(e => e.Path).ToHashSet(StringComparer.Ordinal);
+            foreach (var asset in archive.Value.Keys.Where(k => !names.Contains(k)))
+            { Console.WriteLine("NEW NATIVE ASSET " + archive.Key + "/" + asset); additions++; }
+        }
+        Check(missing == 0, "all Windows mod target archives exist in native Linux game");
+        Check((additions == 0 || additions == 2) && File.ReadAllText(realMod.Replacements()["core.gfs"]["core/arcade/story/BigBandIntro.ini"]).Contains("ShotTex: Shot_01 BigBand 03_1")
+            && File.ReadAllText(realMod.Replacements()["core.gfs"]["core/arcade/story/BigBandIntro.ini"]).Contains("ShotTex: Shot_02 BigBand 03_2"),
+            "AOTC's two new textures are referenced by its replacement story script");
+        byte[] originalNative = File.ReadAllBytes(Environment.GetEnvironmentVariable("SKULLGIRLS_NATIVE_ORIGINAL") ?? Path.Combine(nativeRoot, NativeCompatibility.ExecutableName));
+        byte[] patchedNative = NativeCompatibility.Prepare(originalNative);
+        Check(originalNative.Where((b, i) => b != patchedNative[i]).Count() == 1, "audited native support changes exactly one branch byte");
+        string fixture = Path.Combine(root, "SupportedNativeGame");
+        Directory.CreateDirectory(Path.Combine(fixture, "data01"));
+        File.WriteAllBytes(Path.Combine(fixture, NativeCompatibility.ExecutableName), originalNative);
+        var fixtureManager = new Manager(fixture, Path.Combine(root, "SupportedNativeData"));
+        NativeCompatibility.Install(fixture, fixtureManager.Profile);
+        Check(NativeCompatibility.Installed(fixture), "native setup installs verified patch on disposable game copy");
+        NativeCompatibility.Install(fixture, fixtureManager.Profile);
+        ArchiveCompatibility.Require(fixture, ["core.gfs"]);
+        var alteredNative = (byte[])patchedNative.Clone(); alteredNative[101] ^= 1;
+        File.WriteAllBytes(Path.Combine(fixture, NativeCompatibility.ExecutableName), alteredNative);
+        Throws(() => NativeCompatibility.Restore(fixture, fixtureManager.Profile), "native restore preserves externally changed executable");
+        File.WriteAllBytes(Path.Combine(fixture, NativeCompatibility.ExecutableName), patchedNative);
+        NativeCompatibility.Restore(fixture, fixtureManager.Profile);
+        Check(File.ReadAllBytes(Path.Combine(fixture, NativeCompatibility.ExecutableName)).SequenceEqual(originalNative), "native restore is byte-identical to original executable");
+        originalNative[100] ^= 1;
+        Throws(() => NativeCompatibility.Prepare(originalNative), "native support rejects unknown or modified executable builds");
+    }
+    Console.WriteLine($"Imported {realMod.Info.Name} {realMod.Info.Version}: {realMod.Replacements().Sum(a => a.Value.Count)} archive assets, {realMod.LooseFiles().Count} loose assets");
+}
+// Discovery uses isolated Steam roots, including external libraries and stale saved paths.
+string steamFixture = Path.Combine(root, "SteamDiscovery");
+string externalLibrary = Path.Combine(root, "ExternalSteamLibrary");
+string detectedGame = Path.Combine(externalLibrary, "steamapps", "common", "Custom Skullgirls Directory");
+Directory.CreateDirectory(Path.Combine(detectedGame, "data01"));
+File.WriteAllText(Path.Combine(detectedGame, "SkullGirls.exe"), "fixture");
+Directory.CreateDirectory(Path.Combine(steamFixture, "steamapps"));
+File.WriteAllText(Path.Combine(steamFixture, "steamapps", "libraryfolders.vdf"),
+    "\"libraryfolders\" { \"1\" { \"path\" \"" + externalLibrary + "\" } }");
+File.WriteAllText(Path.Combine(externalLibrary, "steamapps", "appmanifest_245170.acf"),
+    "\"AppState\" { \"installdir\" \"Custom Skullgirls Directory\" }");
+Check(GameDiscovery.Find("/missing/saved/game", null, [steamFixture]) == detectedGame,
+    "Steam manifest discovers external library and custom installation directory after stale saved path");
+Check(GameDiscovery.Find(detectedGame, null, []) == detectedGame, "valid saved game location is reused");
+Check(GameDiscovery.Find(null, detectedGame, []) == detectedGame, "configured game root is honored");
+Check(GameDiscovery.Find(null, null, [Path.Combine(root, "missing-steam")]) == "", "missing Steam install leaves manual selection available");
+File.Delete(Path.Combine(detectedGame, "SkullGirls.exe"));
+Check(GameDiscovery.Find(null, null, [steamFixture]) == "", "uninstalled manifest does not produce a connection target");
+File.WriteAllText(Path.Combine(detectedGame, "Skullgirls.x86_64-pc-linux-gnu"), "native fixture");
+Check(GameDiscovery.Find(null, null, [steamFixture]) == detectedGame, "native Linux Steam executable is discovered");
+var nativeManager = new Manager(detectedGame, Path.Combine(root, "NativeDiscoveryData"));
+Check(nativeManager.DataFolder == Path.Combine(detectedGame, "data01"), "manager connects to discovered native Linux installation");
+Throws(() => ArchiveCompatibility.Require(detectedGame, ["core.gfs"]), "unverified protected native archive modifications remain blocked");
+Throws(() => ArchiveCompatibility.Install(detectedGame, nativeManager.Profile, "missing.dll"), "Windows DLL loader setup is rejected for native Linux game");
 string game = Path.Combine(root, "FixtureGame");
 Directory.CreateDirectory(Path.Combine(game, "data01"));
 File.WriteAllText(Path.Combine(game, "SkullGirls.exe"), "fixture, not executable");
@@ -136,6 +210,8 @@ using (var altered = updates.PrepareUpdate(updateFirst, updateSource))
     File.AppendAllText(Path.Combine(altered.Replacement.Folder, "core.gfs/core/music.ini"), "tamper");
     Throws(() => updates.CommitUpdate(altered), "changed staged payload is rejected after preview");
 }
+if (OperatingSystem.IsWindows())
+{
 using (var lockedUpdate = updates.PrepareUpdate(updateFirst, updateSource))
 {
     using (var packageLock = new FileStream(Path.Combine(lockedUpdate.Replacement.Folder, "core.gfs/core/music.ini"), FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -143,6 +219,8 @@ using (var lockedUpdate = updates.PrepareUpdate(updateFirst, updateSource))
     Check(new Mod(updateFirst.Folder).Info.Version == new Version(1, 0) && new Mod(updateFirst.Folder).Enabled &&
         !File.Exists(Path.Combine(updates.Root, ".mod-update.json")), "failed directory swap restores original library package and clears journal");
 }
+}
+else Console.WriteLine("SKIP Windows file-sharing failure injection (Unix permits rename of open files)");
 using (var duplicate = updates.PrepareUpdate(updateFirst, sourceB))
     Throws(() => updates.CommitUpdate(duplicate, true), "explicit ID mapping cannot collide with another library entry");
 new ModInfo { Id = "tests.renamed", Name = "Renamed A", Version = new Version(2, 0) }.Write(Path.Combine(updateSource, "mod.json"));
@@ -212,9 +290,13 @@ manager.Apply([modA, modB], true);
 Check(Crypto.Checksum(core) == originalCore && Crypto.Checksum(ui) == originalUi, "restore is byte-for-byte identical to originals");
 Check(modA.Enabled && modB.Enabled, "restore preserves enabled selections");
 // Force second replacement to fail while the first archive has already committed.
+if (OperatingSystem.IsWindows())
+{
 using (var held = new FileStream(ui, FileMode.Open, FileAccess.Read, FileShare.Read))
     Throws(() => manager.Apply([modA, modB]), "locked second archive causes transaction failure");
 Check(Crypto.Checksum(core) == originalCore && Crypto.Checksum(ui) == originalUi && !manager.NeedsRecovery, "failed multi-archive transaction rolls back all earlier replacements");
+}
+else Console.WriteLine("SKIP Windows file-sharing failure injection (Unix permits rename of open files)");
 manager.Apply([modA, modB]);
 modA.SetEnabled(false); modB.SetEnabled(false);
 Check(manager.Preview([modA, modB]).Restore.Count == 2, "disabling all mods plans restoration of previously changed archives");
@@ -419,8 +501,12 @@ string looseReplacement=Path.Combine(looseSource,"core.gfs/core/music.ini"); Dir
 var looseLibrary=new Library(Path.Combine(root,"LooseLibrary")); var looseMod=looseLibrary.Import(looseSource); looseMod.SetEnabled(true);
 var looseManager=new Manager(looseGame,Path.Combine(root,"LooseProfile"));
 Check(looseManager.Preview([looseMod]).LooseFiles.Count==3,"mixed mod previews all loose files alongside archive replacements");
+if (OperatingSystem.IsWindows())
+{
 using(var held=new FileStream(artZ,FileMode.Open,FileAccess.Read,FileShare.Read)) Throws(()=>looseManager.Apply([looseMod]),"locked loose file fails the combined transaction");
 Check(File.ReadAllBytes(artA).SequenceEqual(pngOriginal)&&!File.Exists(artB)&&Contents(looseCore,"core/music.ini")=="original music"&&!looseManager.NeedsRecovery,"loose failure rolls back replaced files, added files and archive changes together");
+}
+else Console.WriteLine("SKIP Windows file-sharing failure injection (Unix permits rename of open files)");
 looseManager.Apply([looseMod]);
 Check(File.ReadAllBytes(artA).SequenceEqual(pngA)&&File.Exists(artB)&&File.ReadAllBytes(untouched).SequenceEqual(pngOriginal),"loose apply replaces and adds artwork while preserving unrelated files");
 string looseSourceB=Path.Combine(root,"LooseOnly"); Directory.CreateDirectory(Path.Combine(looseSourceB,"loose/Digital Art Compendium/Artwork"));
@@ -513,8 +599,22 @@ File.Copy(Path.Combine(history, "current.gfs"), priorBackup, true);
 Throws(() => adopt.ReviewArchiveUpdate("../core.gfs"), "baseline archive path traversal rejected");
 string adoptedState = Path.Combine(adopt.Profile, "state.json");
 var interrupted = adopt.ReviewArchiveUpdate("core.gfs");
+if (OperatingSystem.IsWindows())
+{
 using (var held = new FileStream(adoptedState, FileMode.Open, FileAccess.Read, FileShare.Read))
     Throws(() => adopt.UpdateArchiveBaseline(interrupted), "interrupted state publication leaves a recoverable baseline update");
+}
+else
+{
+    string simulated = Path.Combine(adopt.BaselineHistory, "linux-interrupted-test");
+    Directory.CreateDirectory(simulated);
+    File.Copy(adoptedState, Path.Combine(simulated, "previous-state.json"));
+    File.Copy(priorBackup, Path.Combine(simulated, "previous-backup.gfs"));
+    File.Copy(adoptCore, Path.Combine(simulated, "current.gfs"));
+    Storage.Save(Path.Combine(adopt.Profile, "baseline-update.json"), new ArchiveBaselineUpdate(
+        "core.gfs", Path.GetFileName(simulated), Crypto.Checksum(Path.Combine(simulated, "previous-state.json")),
+        Crypto.Checksum(adoptCore), Crypto.Checksum(priorBackup)));
+}
 Check(adopt.NeedsRecovery, "interrupted baseline updates block later operations");
 var baselineStatus = adopt.InspectInstallation();
 Check(baselineStatus.PendingBaselineUpdate && baselineStatus.HistoryCount > 0 && baselineStatus.Issues.Any(i => i.Problem.Contains("baseline update")),
@@ -602,6 +702,8 @@ var failureTarget = profileLibrary.SaveProfile("Failure target");
 profileA.SetEnabled(true); profileB.SetEnabled(false);
 profileLibrary.SetOrder([profileA, profileB, extraProfileMod]);
 string beforeFailedSwitch = File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json"));
+if (OperatingSystem.IsWindows())
+{
 using (var markerLock = new FileStream(Path.Combine(profileA.Folder, "enabled"), FileMode.Open, FileAccess.Read, FileShare.Read))
     Throws(() => profileLibrary.SwitchProfile(profileLibrary.ReviewProfile(failureTarget.Id)), "locked enabled marker safely fails a partial profile switch");
 Check(profileA.Enabled && !profileB.Enabled && File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json")) == beforeFailedSwitch
@@ -610,6 +712,8 @@ using (var orderLock = new FileStream(Path.Combine(profileLibrary.Root, "order.j
     Throws(() => profileLibrary.SwitchProfile(profileLibrary.ReviewProfile(failureTarget.Id)), "locked order file rolls back changed enabled markers");
 Check(profileA.Enabled && !profileB.Enabled && File.ReadAllText(Path.Combine(profileLibrary.Root, "order.json")) == beforeFailedSwitch
     && !File.Exists(Path.Combine(profileLibrary.Root, ".profile-switch.json")), "failed order publication leaves exact prior selection and order intact");
+}
+else Console.WriteLine("SKIP Windows file-sharing failure injection (Unix permits rename of open files)");
 Storage.Save(Path.Combine(profileLibrary.Root, ".profile-switch.json"), new
 {
     Before = new[] { new ProfileSelection(Path.GetFileName(profileA.Folder), true), new ProfileSelection(Path.GetFileName(profileB.Folder), false), new ProfileSelection(Path.GetFileName(extraProfileMod.Folder), false) },

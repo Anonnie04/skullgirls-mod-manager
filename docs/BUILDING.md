@@ -2,6 +2,8 @@
 
 [Back to the README](../README.md)
 
+For the native Linux graphical app, see [Linux desktop build](LINUX.md).
+
 ## Build from source
 
 Use Windows and the .NET 9 SDK. The first build restores the NuGet packages for

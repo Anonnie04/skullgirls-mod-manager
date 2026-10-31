@@ -48,8 +48,8 @@ public partial class Manager
         explicitArchiveFolder = archiveFolder != null;
         GameFolder = Path.GetFullPath(game).TrimEnd(Path.DirectorySeparatorChar);
         DataFolder = Path.Combine(GameFolder, archiveFolder ?? (ArchiveCompatibility.Installed(GameFolder) && Directory.Exists(Path.Combine(GameFolder, "data02")) ? "data02" : "data01"));
-        if (!File.Exists(Path.Combine(GameFolder, "SkullGirls.exe")) || !Directory.Exists(DataFolder))
-            throw new InvalidDataException("Select the Skullgirls folder containing SkullGirls.exe and data01.");
+        if (GameDiscovery.Executable(GameFolder) == null || !Directory.Exists(DataFolder))
+            throw new InvalidDataException("Select the Skullgirls folder containing the Skullgirls executable and data01.");
         SafePaths.RejectLinks(GameFolder);
         SafePaths.RejectLinks(DataFolder);
         string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(GameFolder.ToUpperInvariant())))[..20];
@@ -91,7 +91,7 @@ public partial class Manager
     {
         string active = Path.Combine(GameFolder, ArchiveCompatibility.Installed(GameFolder) && Directory.Exists(Path.Combine(GameFolder, "data02")) ? "data02" : "data01");
         if (!explicitArchiveFolder && !active.Equals(DataFolder, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The game archive folder changed after mod support setup. Reopen the manager before applying mods.");
-        if (Process.GetProcessesByName("SkullGirls").Length != 0) throw new InvalidOperationException("Close Skullgirls before changing game files.");
+        if (ArchiveCompatibility.GameRunning()) throw new InvalidOperationException("Close Skullgirls before changing game files.");
         if (NeedsRecovery) throw new InvalidOperationException("An interrupted operation needs recovery. Use Recover interrupted operation first.");
     }
 
@@ -242,7 +242,7 @@ public partial class Manager
 
     public void Recover()
     {
-        if (Process.GetProcessesByName("SkullGirls").Length != 0) throw new InvalidOperationException("Close Skullgirls first.");
+        if (ArchiveCompatibility.GameRunning()) throw new InvalidOperationException("Close Skullgirls first.");
         using var guard = new FileStream(Path.Combine(Profile, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         if (File.Exists(BaselineJournal))
         {

@@ -10,8 +10,20 @@ public static class ArchiveCompatibility
     // Supported user-supplied compatibility component. Never redistributed by SGMM.
     public const string LoaderSha256 = "014bfb8c48fa7afbcd585a34d814011b96b289c742482a01376f56aafa1e11d3";
     public static readonly string[] ProtectedArchives = ["core.gfs", "characters-foits.gfs", "ui.gfs"];
+    public static bool GameRunning()
+    {
+        // Proton can expose the .exe suffix in the Unix process name.
+        foreach (string name in new[] { "SkullGirls", "SkullGirls.exe", "Skullgirls", "Skullgirls.x86_64", "Skullgirls.x86_64-pc-linux-gnu", "Skullgirls.x86", "Skullgirls.x86_" })
+        {
+            var processes = Process.GetProcessesByName(name);
+            bool running = processes.Length > 0;
+            foreach (var process in processes) process.Dispose();
+            if (running) return true;
+        }
+        return false;
+    }
     public static bool Required(string game, IEnumerable<string> archives) => archives.Any(a => ProtectedArchives.Contains(a, StringComparer.OrdinalIgnoreCase))
-        && File.ReadAllBytes(Path.Combine(game,"SkullGirls.exe")).AsSpan().IndexOf(Encoding.ASCII.GetBytes("Package %s.gfs not verified.")) >= 0;
+        && File.ReadAllBytes(GameDiscovery.Executable(game) ?? throw new InvalidDataException("Skullgirls executable not found.")).AsSpan().IndexOf(Encoding.ASCII.GetBytes("Package %s.gfs not verified.")) >= 0;
     public static bool Installed(string game)
     {
         string path = Path.Combine(game,"CoreMessaging.dll");
@@ -48,11 +60,19 @@ public static class ArchiveCompatibility
     }
     public static void Require(string game, IEnumerable<string> archives)
     {
+        if (NativeCompatibility.IsNative(game))
+        {
+            if (archives.Any(a => ProtectedArchives.Contains(a, StringComparer.OrdinalIgnoreCase)) && !NativeCompatibility.Installed(game))
+                throw new InvalidOperationException("Set up native Linux mod support before applying protected archive replacements. The manager will verify this exact game build and back up its original executable.");
+            return;
+        }
         if (Required(game,archives) && !Installed(game)) throw new InvalidOperationException("These mods change archives verified by Skullgirls. Open Backups & tools → Set up mod support. This is a separate, one-time setup, not a mod ZIP import. After setup, the manager saves support locally and restores it automatically after a game reinstall.");
     }
     public static void Install(string game, string profile, string source)
     {
-        if (Process.GetProcessesByName("SkullGirls").Length != 0) throw new InvalidOperationException("Close Skullgirls, including its error dialog, before installing compatibility.");
+        if (!File.Exists(Path.Combine(game, "SkullGirls.exe")))
+            throw new InvalidOperationException("The DLL compatibility loader requires the Windows game through Proton; it cannot be installed for the native Linux game.");
+        if (ArchiveCompatibility.GameRunning()) throw new InvalidOperationException("Close Skullgirls, including its error dialog, before installing compatibility.");
         using var guard = new FileStream(Path.Combine(profile,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
         if(File.Exists(Path.Combine(profile,"transaction.json"))) throw new InvalidOperationException("Recover the interrupted installation first.");
         SafePaths.RejectLinks(game); SafePaths.RejectLinks(source);

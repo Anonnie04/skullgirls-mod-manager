@@ -1,0 +1,57 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - run: ./build-linux.sh --test
+      - run: ./package-linux.sh --skip-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: artifacts/*
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - shell: pwsh
+        run: ./Build.ps1 -Test
+      - shell: pwsh
+        run: ./Package.ps1 -SkipBuild
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: artifacts/*windows.zip
+          if-no-files-found: error
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release with matching binaries and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("Desktop/Desktop.csproj").findtext("PropertyGroup/Version"))')"
+          cd release-assets
+          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" ./* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Skullgirls Mod Manager $version" --notes-file "../docs/releases/$version.md"
