@@ -184,3 +184,31 @@ The previous backup, complete profile state, and adopted file snapshot are prese
 - Archive and filesystem behavior are tested; effects of individual mod assets still require testing in-game. An image replacement mod has been tested in-game by the user; individual replacements still need their own checks.
 
 For build instructions and verification details, see [Building from source](BUILDING.md).
+
+### Optional components inside a mod
+
+Click **Options…** beside a mod to toggle its optional components. The button appears only for mods that have optional components. Save, then
+Preview changes and Apply to update the game. Disabled paths stop contributing
+replacements; normal load order and restore handling apply. Choices are saved
+with named profiles and retained by component ID when updating a mod.
+
+Authors can add `optionalPaths` to `mod.json`. Paths are relative to the mod root,
+use forward slashes, and identify existing files or directories. Groups cannot
+overlap. Assets outside these paths are always included when the mod is enabled.
+Omitting `defaultEnabled` makes a component off by default.
+
+```json
+"optionalPaths": [
+  {
+    "id": "announcer",
+    "name": "Alternative announcer",
+    "paths": ["characters-win.gfs/characters/hitspark_alt3.snd-wav"],
+    "defaultEnabled": false
+  }
+]
+```
+
+AOTC standalone ZIPs with the schema 1 module manifest are converted automatically
+on import. Optional modules become components within the same mod; replacement
+checksums are verified. Installer scripts and the loader are not imported. Use
+**Set up mod support** separately when required by the game build.

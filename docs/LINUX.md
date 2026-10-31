@@ -18,6 +18,14 @@ change previews, apply, restore, recovery, and user-supplied compatibility setup
 The Windows asset editor, audio previews, mod updates and profile picker have
 not yet been ported to this interface.
 
+## Optional components
+
+Mods with optional components have an **Options…** button on their library row.
+Choose components, save, then preview and apply. Selections persist in the mod
+library. The AOTC standalone ZIP is also supported: its manifest is converted
+on import, with the optional Soviet announcer off by default. Installer scripts
+and Windows DLLs are excluded from the converted mod.
+
 ## Importing AOTC
 
 Choose **Import ZIP…** and select `AOTC-0.15.1-ModManager.zip` directly. The

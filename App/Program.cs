@@ -44,6 +44,7 @@ internal static class Program
                     bitmap.Save(Path.Combine(ProjectRoot, "ui-preview.png"));
                     await form.SmokeReview();
                     await form.SmokeProfiles();
+                    form.SmokeOptionalPaths();
                     if (args.Contains("--smoke-ui")) await form.SmokeAssets();
                 }
                 catch (Exception ex) { File.WriteAllText(Path.Combine(ProjectRoot, "ui-smoke-error.txt"), ex.ToString()); Environment.ExitCode = 1; }
@@ -191,6 +192,14 @@ public partial class MainForm : Form
         left.Controls.Add(imports, 0, 1);
         modGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "enabled", HeaderText = "On", FillWeight = 17 });
         Column(modGrid, "name", "Mod", 60); Column(modGrid, "version", "Version", 23);
+        modGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "options", HeaderText = "", Width = 76,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None, ReadOnly = true, SortMode = DataGridViewColumnSortMode.NotSortable });
+        modGrid.CellContentClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex == modGrid.Columns["options"]!.Index
+                && modGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] is DataGridViewButtonCell
+                && modGrid.Rows[e.RowIndex].Tag is Mod mod) ShowOptionalPaths(mod);
+        };
         modGrid.CurrentCellDirtyStateChanged += (_, _) => { if (modGrid.IsCurrentCellDirty) modGrid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
         modGrid.CellValueChanged += (_, e) =>
         {
@@ -323,7 +332,14 @@ public partial class MainForm : Form
         try
         {
             mods = library.Mods(); modGrid.Rows.Clear();
-            foreach (var mod in mods) { int n = modGrid.Rows.Add(mod.Enabled, mod.Info.Name, mod.Info.Version); modGrid.Rows[n].Tag = mod; }
+            foreach (var mod in mods)
+            {
+                int n = modGrid.Rows.Add(mod.Enabled, mod.Info.Name, mod.Info.Version);
+                var row = modGrid.Rows[n]; row.Tag = mod;
+                if (mod.Info.OptionalPaths.Count > 0)
+                    row.Cells["options"] = new DataGridViewButtonCell { Value = "Options…", FlatStyle = FlatStyle.Flat,
+                        ToolTipText = "Choose optional components for " + mod.Info.Name };
+            }
             int index = mods.FindIndex(m => m.Folder == selected);
             if (index >= 0) modGrid.CurrentCell = modGrid.Rows[index].Cells[1];
             ShowDetails();

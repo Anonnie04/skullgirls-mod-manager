@@ -15,6 +15,8 @@ public class ModInfo
     public Version Version {get; set;} = new();
     [JsonPropertyName("url")]
     public string? Url {get; set;}
+    [JsonPropertyName("optionalPaths")]
+    public List<OptionalPath> OptionalPaths { get; set; } = [];
     public static ModInfo? Read(string filepath)
     {
         return FileSystem.ReadJson<ModInfo?>(filepath);
@@ -27,4 +29,11 @@ public class ModInfo
     {
         return $"{Name} [{Id}] by {Author} v{Version}";
     }
+}
+public class OptionalPath
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("paths")] public List<string> Paths { get; set; } = [];
+    [JsonPropertyName("defaultEnabled")] public bool DefaultEnabled { get; set; }
 }

@@ -5,7 +5,7 @@ using ThemModdingHerds.VelvetBeautifier.Modding;
 namespace SkullgirlsModManager;
 
 // Adapted from Velvet's Mod / ModDB: mod.json, enabled marker, and *.gfs folders.
-public class Mod(string folder)
+public partial class Mod(string folder)
 {
     public const string MOD_ENABLED_NAME = "enabled";
     public const string MODINFO_NAME = "mod.json";
@@ -19,7 +19,7 @@ public class Mod(string folder)
         else if (File.Exists(path)) File.Delete(path);
     }
 
-    public Dictionary<string, Dictionary<string, string>> Replacements()
+    public Dictionary<string, Dictionary<string, string>> Replacements(bool includeOptional = false)
     {
         var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         var roots = Directory.GetDirectories(Folder, "*.gfs").ToList();
@@ -33,13 +33,14 @@ public class Mod(string folder)
             foreach (string file in Library.Walk(root))
             {
                 string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                if (!includeOptional && !Includes(name + "/" + relative)) continue;
                 if (!files.TryAdd(relative, file)) throw new InvalidDataException($"Duplicate asset path: {relative}");
             }
             if (files.Count > 0) result.Add(name, files);
         }
         return result;
     }
-    public Dictionary<string, string> LooseFiles()
+    public Dictionary<string, string> LooseFiles(bool includeOptional = false)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string root = Path.Combine(Folder, "loose");
@@ -48,6 +49,7 @@ public class Mod(string folder)
         {
             string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             Manager.ValidateLooseName(relative);
+            if (!includeOptional && !Includes("loose/" + relative)) continue;
             if (!result.TryAdd(relative, file)) throw new InvalidDataException("Duplicate loose asset: " + relative);
         }
         return result;
@@ -73,6 +75,7 @@ public partial class Library
     {
         if (Mods().Any(m => m.Info.Id == mod.Info.Id)) throw new InvalidDataException("A mod with this ID is already installed. Select it and use Update mod.");
         mod.SetEnabled(false);
+        mod.ResetOptionalPaths();
         string destination = Path.Combine(Root, Guid.NewGuid().ToString("N"));
         Directory.Move(mod.Folder, destination);
         return new Mod(destination);
@@ -115,7 +118,7 @@ public partial class Library
                     source.CopyTo(output);
                 }
             }
-            string content = staging;
+            string content = ConvertStandalone(staging) ?? staging;
             if (!File.Exists(Path.Combine(content, Mod.MODINFO_NAME)))
             {
                 var candidates = Directory.GetFiles(staging, Mod.MODINFO_NAME, SearchOption.AllDirectories);
@@ -129,7 +132,8 @@ public partial class Library
             }
             var mod = new Mod(content);
             if (string.IsNullOrWhiteSpace(mod.Info.Id) || string.IsNullOrWhiteSpace(mod.Info.Name)) throw new InvalidDataException("A mod needs an id and name.");
-            int archives = mod.Replacements().Count, loose = mod.LooseFiles().Count;
+            mod.ValidateOptionalPaths();
+            int archives = mod.Replacements(true).Count, loose = mod.LooseFiles(true).Count;
             if (archives == 0 && loose == 0) throw new InvalidDataException("No replacements found. Expected archive-name.gfs/asset/path or loose/Digital Art Compendium/...png.");
             SpriteStorage.Repair(mod);
             return accept(mod);

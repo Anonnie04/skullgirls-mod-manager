@@ -2,13 +2,22 @@ using System.Text.Json;
 
 namespace SkullgirlsModManager;
 
-public record ProfileMod(string Folder, string Id, string Name, string Version, bool Enabled);
+public record ProfileMod(string Folder, string Id, string Name, string Version, bool Enabled)
+{
+    public Dictionary<string, bool>? OptionalPaths { get; init; }
+}
 public record ModProfile(string Id, string Name, IReadOnlyList<ProfileMod> Mods)
 {
     public override string ToString() => Name;
 }
-public record ProfileSelection(string Folder, bool Enabled);
-public record ProfileReviewRow(string Name, string? Folder, int? Order, bool Enabled, string SavedVersion, string CurrentVersion, string Note);
+public record ProfileSelection(string Folder, bool Enabled)
+{
+    public Dictionary<string, bool>? OptionalPaths { get; init; }
+}
+public record ProfileReviewRow(string Name, string? Folder, int? Order, bool Enabled, string SavedVersion, string CurrentVersion, string Note)
+{
+    public Dictionary<string, bool>? OptionalPaths { get; init; }
+}
 public sealed class ProfileReview
 {
     public ModProfile Profile { get; }
@@ -60,7 +69,7 @@ public partial class Library
     }
 
     private static List<ProfileMod> Snapshot(IEnumerable<Mod> mods) => mods.Select(m =>
-        new ProfileMod(Path.GetFileName(m.Folder), m.Info.Id, m.Info.Name, m.Info.Version.ToString(), m.Enabled)).ToList();
+        new ProfileMod(Path.GetFileName(m.Folder), m.Info.Id, m.Info.Name, m.Info.Version.ToString(), m.Enabled) { OptionalPaths = m.OptionalSelections() }).ToList();
 
     public ProfileReview ReviewProfile(string id)
     {
@@ -82,7 +91,12 @@ public partial class Library
             if (match.Info.Id != saved.Id) notes.Add($"Mod ID changed: {saved.Id} → {match.Info.Id}.");
             if (match.Info.Version.ToString() != saved.Version) notes.Add("Version changed since this profile was saved.");
             if (!Path.GetFileName(match.Folder).Equals(saved.Folder, StringComparison.OrdinalIgnoreCase)) notes.Add("Resolved reimport by mod ID.");
-            rows.Add(new(match.Info.Name, match.Folder, used.Count, saved.Enabled, saved.Version, match.Info.Version.ToString(), string.Join(" ", notes)));
+            if (match.Info.OptionalPaths.Count > 0)
+            {
+                var options = saved.OptionalPaths ?? new Dictionary<string, bool>();
+                notes.Add("Optional components: " + string.Join(", ", match.Info.OptionalPaths.Select(o => o.Name + " " + (options.GetValueOrDefault(o.Id, o.DefaultEnabled) ? "on" : "off"))) + ".");
+            }
+            rows.Add(new(match.Info.Name, match.Folder, used.Count, saved.Enabled, saved.Version, match.Info.Version.ToString(), string.Join(" ", notes)) { OptionalPaths = saved.OptionalPaths });
         }
         int nextOrder = used.Count + 1;
         foreach (var mod in current.Where(m => !used.Contains(m.Folder)))
@@ -100,7 +114,7 @@ public partial class Library
             throw new InvalidOperationException("The library or saved profile changed after review. Preview the profile again.");
         var selection = reviewed.Rows.Where(r => r.Folder != null).ToList();
         foreach (var mod in current) CheckSelectionPath(Path.GetFileName(mod.Folder));
-        Storage.Save(ProfileSwitchJournal, new SelectionJournal(current.Select(m => new ProfileSelection(Path.GetFileName(m.Folder), m.Enabled)).ToList(),
+        Storage.Save(ProfileSwitchJournal, new SelectionJournal(current.Select(m => new ProfileSelection(Path.GetFileName(m.Folder), m.Enabled) { OptionalPaths = m.OptionalSelections() }).ToList(),
             File.Exists(OrderFile) ? File.ReadAllText(OrderFile) : null));
         try
         {
@@ -108,6 +122,7 @@ public partial class Library
             {
                 var mod = current.Single(m => m.Folder.Equals(row.Folder, StringComparison.OrdinalIgnoreCase));
                 if (mod.Enabled != row.Enabled) mod.SetEnabled(row.Enabled);
+                mod.SetOptionalSelections(row.OptionalPaths ?? new Dictionary<string, bool>());
             }
             SetOrder(selection.Select(r => current.Single(m => m.Folder.Equals(r.Folder, StringComparison.OrdinalIgnoreCase))));
             File.Delete(ProfileSwitchJournal);
@@ -142,6 +157,7 @@ public partial class Library
         {
             string folder = ProfileFolder(saved.Folder);
             if (!Directory.Exists(folder)) continue;
+            new Mod(folder).SetOptionalSelections(saved.OptionalPaths ?? new Dictionary<string, bool>());
             string marker = Path.Combine(folder, Mod.MOD_ENABLED_NAME);
             if (saved.Enabled) { if (!File.Exists(marker)) File.WriteAllText(marker, ""); }
             else if (File.Exists(marker)) File.Delete(marker);

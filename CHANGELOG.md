@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Add optional replacement path groups within a mod, with an Options button beside matching mods in both Windows and Linux interfaces.
+- Persist component selections across restarts, Windows named profiles and package updates; disabled components use normal preview, conflict and restore handling.
+- Import AOTC standalone schema 1 ZIPs directly, verifying replacement checksums and converting optional modules into toggles within the same mod. The optional announcer starts disabled; installer scripts and loader DLLs are excluded.
+- Add Build-All.ps1 to publish Windows x64 and self-contained Linux x64 builds from one checkout.
+
 ## 0.4.0
 
 - Add a native Linux x64 graphical app with an Art Deco skull crest, geometric borders, and burgundy-and-gold styling.

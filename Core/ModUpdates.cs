@@ -26,8 +26,8 @@ public sealed class ModUpdate : IDisposable
     private static Dictionary<string, string> Assets(Mod mod)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var archive in mod.Replacements()) foreach (var asset in archive.Value) result.Add(archive.Key + "/" + asset.Key, asset.Value);
-        foreach (var asset in mod.LooseFiles()) result.Add("loose/" + asset.Key, asset.Value);
+        foreach (var archive in mod.Replacements(true)) foreach (var asset in archive.Value) result.Add(archive.Key + "/" + asset.Key, asset.Value);
+        foreach (var asset in mod.LooseFiles(true)) result.Add("loose/" + asset.Key, asset.Value);
         return result;
     }
     public void Dispose() { if (Directory.Exists(Replacement.Folder)) Directory.Delete(Replacement.Folder, true); }
@@ -52,7 +52,7 @@ public partial class Library
         return StagePackage(input, replacement =>
         {
             string staged = Path.Combine(Root, ".prepared-" + Guid.NewGuid().ToString("N"));
-            if (!restoreSettings) replacement.SetEnabled(current.Enabled);
+            if (!restoreSettings) { replacement.SetEnabled(current.Enabled); replacement.SetOptionalSelections(current.OptionalSelections()); }
             Directory.Move(replacement.Folder, staged);
             try { return new ModUpdate(current, new Mod(staged)); }
             catch { Directory.Delete(staged, true); throw; }

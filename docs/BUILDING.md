@@ -23,6 +23,22 @@ powershell -File Build.ps1
 
 The published app uses the .NET 9 Desktop Runtime.
 
+## Build both targets from Windows
+
+```powershell
+./Build-All.ps1 -Test
+```
+
+With the .NET 9 SDK, this runs the shared fixture tests and publishes the Windows
+Forms app to `dist/windows-x64/` and the self-contained Avalonia Linux x64 app to
+`dist/linux-x64/`. The Windows app requires the .NET 9 Desktop Runtime. Linux
+build output must be run on a compatible Linux desktop; cross-publishing does
+not verify its runtime dependencies. Existing Windows and Linux CI workflows
+also build and test on their respective operating systems.
+
+Both interfaces show **Options…** beside mods with optional components. Import,
+selection persistence and replacement filtering use the same Core implementation.
+
 ## Verification
 
 The console suite uses disposable game fixtures to check import, load order, archive replacement/addition, payload preservation, rollback after a locked second archive, persisted crash recovery, restore and hash guards. When `SKULLGIRLS_GAME_ROOT` is set to your installation folder, it also reads the game archive indexes and repacks copies of `core.gfs` under test output, including a byte-identical no-change round trip. Actual installed archives are never test destinations.

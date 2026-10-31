@@ -727,5 +727,46 @@ Check(Crypto.Checksum(adoptCore) == interruptedHash && File.ReadAllText(adoptedS
     inspectedHistory.All(p => Crypto.Checksum(p.Key) == p.Value), "saving and switching named profiles preserves game archives, installation baseline state and restore history");
 Check(!Directory.GetDirectories(profileLibrary.Root, "backups", SearchOption.AllDirectories).Any()
     && !Directory.GetDirectories(profileLibrary.Root, "profiles", SearchOption.AllDirectories).Any(), "named profiles store shared-library references without duplicating installation backups");
+// Optional components share the package identity and obey normal replacement routing.
+string optionalSource = Path.Combine(root, "OptionalMod");
+Payload("OptionalMod/core.gfs/core/music.ini", "required music");
+Payload("OptionalMod/ui.gfs/ui/menu.txt", "optional menu");
+new ModInfo { Id = "tests.optional", Name = "Optional mod", Version = new Version(1, 0),
+    OptionalPaths = [new() { Id = "menu", Name = "Menu", Paths = ["ui.gfs/ui"] }] }.Write(Path.Combine(optionalSource, "mod.json"));
+var optionalLibrary = new Library(Path.Combine(root, "OptionalLibrary"));
+var optionalMod = optionalLibrary.Import(optionalSource);
+Check(optionalMod.Replacements().Count == 1 && optionalMod.Replacements(true).Count == 2, "optional directory excluded by default while required replacements remain");
+optionalMod.SetOptionalPath("menu", true);
+Check(new Mod(optionalMod.Folder).Replacements().Count == 2, "optional selection persists across reopen");
+var optionalProfile = optionalLibrary.SaveProfile("With menu");
+optionalMod.SetOptionalPath("menu", false);
+optionalLibrary.SwitchProfile(optionalLibrary.ReviewProfile(optionalProfile.Id));
+Check(optionalMod.OptionalSelections()["menu"], "profiles restore optional selections");
+var optionalReview = optionalLibrary.ReviewProfile(optionalProfile.Id);
+optionalMod.SetOptionalPath("menu", false);
+Throws(() => optionalLibrary.SwitchProfile(optionalReview), "optional changes invalidate stale profile review");
+using (var optionUpdate = optionalLibrary.PrepareUpdate(optionalMod, optionalSource))
+{
+    optionalMod = optionalLibrary.CommitUpdate(optionUpdate);
+    Check(!optionalMod.OptionalSelections()["menu"], "updates retain optional selection by ID");
+}
+optionalMod.SetEnabled(true);
+var optionalManager = new Manager(game, Path.Combine(root, "OptionalManagerData"));
+Check(!optionalManager.Preview(optionalLibrary.Mods()).Changes.Any(c => c.Asset == "ui/menu.txt"), "disabled optional asset absent from installation preview");
+optionalMod.Info.OptionalPaths.Add(new() { Id = "overlap", Name = "Overlap", Paths = ["ui.gfs/ui/menu.txt"] });
+Throws(optionalMod.ValidateOptionalPaths, "overlapping optional groups rejected");
+optionalMod.Info.OptionalPaths.RemoveAt(1);
+optionalMod.Info.OptionalPaths[0].Paths = ["../escape"];
+Throws(optionalMod.ValidateOptionalPaths, "optional path traversal rejected");
+string? standaloneZip = Environment.GetEnvironmentVariable("SG_TEST_STANDALONE_ZIP");
+if (!string.IsNullOrEmpty(standaloneZip))
+{
+    var standalone = new Library(Path.Combine(root, "StandaloneLibrary")).Import(standaloneZip);
+    Check(standalone.Info.Name == "AOTC" && standalone.Info.OptionalPaths.Count == 1 && !standalone.OptionalSelections()["soviet"], "real AOTC standalone converts with optional announcer off");
+    int before = standalone.Replacements().Sum(a => a.Value.Count);
+    standalone.SetOptionalPath("soviet", true);
+    Check(standalone.Replacements().Sum(a => a.Value.Count) == before + 1 && standalone.LooseFiles().Count > 0, "real AOTC announcer toggles within same mod alongside compendium artwork");
+    Check(!Directory.GetFiles(standalone.Folder, "*.dll", SearchOption.AllDirectories).Any() && !Directory.GetFiles(standalone.Folder, "*.ps1", SearchOption.AllDirectories).Any(), "converted AOTC contains replacement content without installer or loader");
+}
 File.WriteAllText(Path.Combine(root, "results.txt"), $"{passed} checks passed. Actual installed game files were opened read-only.\n");
 Console.WriteLine($"\n{passed} checks passed. Results: {root}");

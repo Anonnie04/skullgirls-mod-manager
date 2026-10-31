@@ -88,9 +88,32 @@ public sealed class MainWindow : Window
         {
             var enabled = new CheckBox { Content = $"{mod.Info.Name}  {mod.Info.Version}", IsChecked = mod.Enabled, MinWidth = 420 };
             enabled.IsCheckedChanged += (_, _) => { mod.SetEnabled(enabled.IsChecked == true); reviewed = null; };
-            rows.Children.Add(Line(enabled, Button("↑", () => Move(mod, -1)), Button("↓", () => Move(mod, 1))));
+            var row = Line(enabled, Button("↑", () => Move(mod, -1)), Button("↓", () => Move(mod, 1)));
+            if (mod.Info.OptionalPaths.Count > 0) row.Children.Add(Button("Options…", () => Options(mod)));
+            rows.Children.Add(row);
         }
         if (mods.Count == 0) rows.Children.Add(new TextBlock { Text = "No mods imported. Your original ZIP files are kept unchanged." });
+    }
+    private async Task Options(Mod mod)
+    {
+        var selected = mod.OptionalSelections();
+        var choices = mod.Info.OptionalPaths.Select(o => new CheckBox { Content = o.Name, IsChecked = selected[o.Id] }).ToList();
+        var dialog = new Window { Title = mod.Info.Name + " — Optional components", Width = 540, Height = 380,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new StackPanel { Margin = new Thickness(20), Spacing = 12 };
+        panel.Children.Add(new TextBlock { Text = "Choose components, then Preview and Apply to update the game.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        var list = new StackPanel { Spacing = 8 };
+        foreach (var choice in choices) list.Children.Add(choice);
+        panel.Children.Add(new ScrollViewer { Content = list, MaxHeight = 220 });
+        var save = new Button { Content = "Save" }; var cancel = new Button { Content = "Cancel" };
+        bool accepted = false;
+        save.Click += (_, _) => { accepted = true; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        panel.Children.Add(Line(cancel, save)); dialog.Content = panel;
+        await dialog.ShowDialog(this);
+        if (!accepted) return;
+        mod.SetOptionalSelections(mod.Info.OptionalPaths.Select((o, i) => (o.Id, Enabled: choices[i].IsChecked == true)).ToDictionary(o => o.Id, o => o.Enabled));
+        reviewed = null; output.Text = "Optional components saved. Preview changes, then Apply to update the game.";
     }
     private Task Move(Mod mod, int offset)
     {
