@@ -2,7 +2,10 @@
 
 ## Optional runtime archive compatibility
 
-The manager can install a supported, user-supplied `CoreMessaging.dll` runtime compatibility component (SHA-256 `014bfb8c48fa7afbcd585a34d814011b96b289c742482a01376f56aafa1e11d3`). This component is not included in the repository or release packages. Its authorship and licensing remain with its original distribution. The manager's installation code is original and does not modify the game executable. The checksum identifies the supported binary; the containing ZIP's name and folder layout do not matter.
+The manager can install a user-supplied SkullLoader `CoreMessaging.dll` for Windows and Proton archive compatibility. Release packages omit this DLL. The manager selects a supported DLL checksum based on the game executable.
+
+- SkullLoader v0.5 uses SHA-256 `014bfb8c48fa7afbcd585a34d814011b96b289c742482a01376f56aafa1e11d3`. [Upstream release](https://github.com/Skullgirls-Communitys-Cut/SkullLoader/releases/tag/V0.5)
+- Skullgirls 3.7.20 Steam build 26588330 uses the local Release Win32 build with SHA-256 `739ffb5ff5cba2edbc82d4d01807049611aee26e201F7F28C3526CEF4A395C42`. [Upstream test commit](https://github.com/Skullgirls-Communitys-Cut/SkullLoader/commit/93798f8b13c0140acb2a3d2c7ce925d8f85f2e30)
 
 This is an independent Skullgirls adaptation, not an official release from the original authors or the game developers.
 

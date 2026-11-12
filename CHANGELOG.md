@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Match the SkullLoader DLL to the Windows 3.7.20 executable and block automatic restoration of v0.5 on that build.
+
 ## 0.4.1
 
 - Add optional replacement path groups within a mod, with an Options button beside matching mods in both Windows and Linux interfaces.

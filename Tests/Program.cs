@@ -567,6 +567,21 @@ if(supportedLoader!=null) {
  File.WriteAllText(cachedLoader,"tampered");
  Check(!ArchiveCompatibility.RestoreSaved(looseGame,looseManager.Profile),"damaged cache after successful setup requires new source");
 }
+string? patchedGameExe = Environment.GetEnvironmentVariable("SGMM_TEST_3720_EXE");
+string? patchedLoader = Environment.GetEnvironmentVariable("SGMM_TEST_3720_LOADER");
+if (patchedGameExe != null && patchedLoader != null && supportedLoader != null)
+{
+    File.Copy(patchedGameExe, Path.Combine(looseGame, "SkullGirls.exe"), true);
+    File.Copy(supportedLoader, cachedLoader, true);
+    Check(!ArchiveCompatibility.RestoreSaved(looseGame, looseManager.Profile), "3.7.20 does not restore cached v0.5");
+    Throws(() => ArchiveCompatibility.Install(looseGame, looseManager.Profile, supportedLoader), "3.7.20 rejects v0.5 imports");
+    string installedLoader = Path.Combine(looseGame, "CoreMessaging.dll");
+    Check(!File.Exists(installedLoader), "rejected legacy loader leaves the game unmodified");
+    ArchiveCompatibility.Install(looseGame, looseManager.Profile, patchedLoader);
+    Check(ArchiveCompatibility.Installed(looseGame), "3.7.20 accepts the verified test build");
+    File.Delete(installedLoader);
+    Check(ArchiveCompatibility.RestoreSaved(looseGame, looseManager.Profile), "3.7.20 restores its matching cached loader");
+}
 // Explicitly adopt external archive changes while retaining previous baselines.
 string adoptGame = Path.Combine(root, "BaselineGame"), adoptData = Path.Combine(root, "BaselineData");
 Directory.CreateDirectory(Path.Combine(adoptGame, "data01")); File.WriteAllText(Path.Combine(adoptGame, "SkullGirls.exe"), "fixture");

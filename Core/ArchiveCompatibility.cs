@@ -24,28 +24,35 @@ public static class ArchiveCompatibility
     }
     public static bool Required(string game, IEnumerable<string> archives) => archives.Any(a => ProtectedArchives.Contains(a, StringComparer.OrdinalIgnoreCase))
         && File.ReadAllBytes(GameDiscovery.Executable(game) ?? throw new InvalidDataException("Skullgirls executable not found.")).AsSpan().IndexOf(Encoding.ASCII.GetBytes("Package %s.gfs not verified.")) >= 0;
+    // Local Release Win32 build of SkullLoader commit 93798f8 for Steam build 26588330.
+    private const string Game3720Sha256 = "C18918F3592EA0BFBBEE3405E0777A5DDE04CBC190564762F1F88BEDB3428509";
+    private const string Loader3720Sha256 = "739FFB5FF5CBA2EDBC82D4D01807049611AEE26E201F7F28C3526CEF4A395C42";
+
+    private static (string Hash, int Size) SupportedLoader(string game) =>
+        Verified(Path.Combine(game, "SkullGirls.exe"), Game3720Sha256)
+            ? (Loader3720Sha256, 946688)
+            : (LoaderSha256, 949248);
+
     public static bool Installed(string game)
     {
-        string path = Path.Combine(game,"CoreMessaging.dll");
-        if (!File.Exists(path)) return false;
-        SafePaths.RejectLinks(path);
-        using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream)).Equals(LoaderSha256,StringComparison.OrdinalIgnoreCase);
+        string path = Path.Combine(game, "CoreMessaging.dll");
+        return File.Exists(path) && Verified(path, SupportedLoader(game).Hash);
     }
     public static string SavedLoader(string profile) => Path.Combine(profile, "compatibility", "CoreMessaging.dll");
-    private static bool Verified(string path)
+    private static bool Verified(string path, params string[] hashes)
     {
         if (!File.Exists(path)) return false;
         SafePaths.RejectLinks(path);
         using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream)).Equals(LoaderSha256, StringComparison.OrdinalIgnoreCase);
+        return hashes.Contains(Convert.ToHexString(SHA256.HashData(stream)), StringComparer.OrdinalIgnoreCase);
     }
-    public static bool Saved(string profile) => Verified(SavedLoader(profile));
+    public static bool Saved(string profile) => Verified(SavedLoader(profile), LoaderSha256, Loader3720Sha256);
     public static bool RestoreSaved(string game, string profile)
     {
         if (Installed(game)) return true;
-        if (!Saved(profile)) return false;
-        Install(game, profile, SavedLoader(profile));
+        string source = SavedLoader(profile);
+        if (!Verified(source, SupportedLoader(game).Hash)) return false;
+        Install(game, profile, source);
         return true;
     }
     private static void Remember(string profile, byte[] bytes)
@@ -76,20 +83,21 @@ public static class ArchiveCompatibility
         using var guard = new FileStream(Path.Combine(profile,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
         if(File.Exists(Path.Combine(profile,"transaction.json"))) throw new InvalidOperationException("Recover the interrupted installation first.");
         SafePaths.RejectLinks(game); SafePaths.RejectLinks(source);
+        var (loaderHash, loaderSize) = SupportedLoader(game);
         byte[] bytes;
         if (source.EndsWith(".zip",StringComparison.OrdinalIgnoreCase))
         {
             using var zip = ZipFile.OpenRead(source);
             var entries=zip.Entries.Where(e=>e.FullName.Replace('\\','/').Split('/').Last().Equals("CoreMessaging.dll",StringComparison.OrdinalIgnoreCase)).ToList();
-            if(entries.Count!=1 || entries[0].Length!=949248) throw new InvalidDataException("Select a ZIP containing exactly one supported CoreMessaging.dll.");
-            using var input=entries[0].Open(); bytes=new byte[949248]; input.ReadExactly(bytes); if(input.ReadByte()!=-1) throw new InvalidDataException("Loader ZIP entry size mismatch.");
+            if(entries.Count!=1 || entries[0].Length!=loaderSize) throw new InvalidDataException("Select a ZIP containing exactly one CoreMessaging.dll supported by this Skullgirls build.");
+            using var input=entries[0].Open(); bytes=new byte[loaderSize]; input.ReadExactly(bytes); if(input.ReadByte()!=-1) throw new InvalidDataException("Loader ZIP entry size mismatch.");
         }
         else
         {
-            if(new FileInfo(source).Length!=949248) throw new InvalidDataException("Unsupported compatibility loader.");
+            if(new FileInfo(source).Length!=loaderSize) throw new InvalidDataException("Unsupported compatibility loader for this Skullgirls build.");
             bytes=File.ReadAllBytes(source);
         }
-        if(!Convert.ToHexString(SHA256.HashData(bytes)).Equals(LoaderSha256,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Compatibility loader checksum does not match the supported loader.");
+        if(!Convert.ToHexString(SHA256.HashData(bytes)).Equals(loaderHash,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Compatibility loader checksum does not match the supported loader for this Skullgirls build.");
         string target=Path.Combine(game,"CoreMessaging.dll");
         if(File.Exists(target)) { if(Installed(game)) { Remember(profile, bytes); return; } throw new IOException("A different CoreMessaging.dll already exists; it was not overwritten."); }
         if(Directory.Exists(target)) throw new IOException("A directory occupies the loader path.");
@@ -99,7 +107,7 @@ public static class ArchiveCompatibility
         try
         {
             File.WriteAllBytes(staged,bytes); File.Move(staged,target);
-            try { if(!Installed(game)) throw new IOException("Installed loader verification failed."); Storage.Save(Path.Combine(profile,"archive-compatibility.json"),new{source=Path.GetFileName(source),sha256=LoaderSha256,installedUtc=DateTime.UtcNow,installedByManager=true}); }
+            try { if(!Installed(game)) throw new IOException("Installed loader verification failed."); Storage.Save(Path.Combine(profile,"archive-compatibility.json"),new{source=Path.GetFileName(source),sha256=loaderHash,installedUtc=DateTime.UtcNow,installedByManager=true}); }
             catch { File.Delete(target); throw; }
         }
         finally { if(File.Exists(staged)) File.Delete(staged); }
